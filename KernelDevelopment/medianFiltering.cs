@@ -34,7 +34,6 @@ namespace KernelDevelopment
             {
                 prop = gpu.GetDeviceProperties(false);
             }
-
             // Setup
             int width           = 50;  // filter window width.
             int depth           = 2500; // z.
