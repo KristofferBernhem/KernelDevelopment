@@ -36,93 +36,96 @@ namespace KernelDevelopment
 
             int N = 200; // number of gaussians to fit.
             int[] firstDataSet = generateTest(N,0);
-            int[] secondDataSet = generateTest(N,-243);
+            int[] secondDataSet = generateTest(N,15);
 
-            int[] xSteps = new int[21 * 21 * 21];
-            int[] ySteps = new int[21 * 21 * 21];
-            int[] zSteps = new int[21 * 21 * 21];
-            int count = 0;
-            for (int x = -250; x <= 250; x = x + 25)
-            {
-                for (int y = -250; y <= 250; y = y + 25)
-                {
-                    for (int z = -250; z <= 250; z = z + 25)
-                    {
-                        xSteps[count] = x;
-                        ySteps[count] = y;
-                        zSteps[count] = z;
-                        count++;
-                    }
-                }
-            }
-
-            Stopwatch watch = new Stopwatch();
+                    Stopwatch watch = new Stopwatch();
             watch.Start();
-
-            int[] device_xSteps = gpu.CopyToDevice(xSteps);
-            int[] device_ySteps = gpu.CopyToDevice(ySteps);
-            int[] device_zSteps = gpu.CopyToDevice(zSteps);
-            int[] device_firstDataSet = gpu.CopyToDevice(firstDataSet);
-            int[] device_secondDataSet = gpu.CopyToDevice(secondDataSet);
-            double[] device_result = gpu.Allocate<double>(xSteps.Length);
-            double minDist = 50*50;
+            
+            int nrXsteps = 21;
+            int nrYsteps = 21;
+            int nrZsteps = 21;
+            double xyStep = 25;
+            double zStep = 25;
+            int[] device_firstDataSet       = gpu.CopyToDevice(firstDataSet);
+            int[] device_secondDataSet      = gpu.CopyToDevice(secondDataSet);
+            double[] device_result      = gpu.Allocate<double>(nrXsteps* nrYsteps* nrZsteps);
+            double minDist              = 50*50;
+            double[] center             = { 0, 0, 0 };
+            double[] device_center      = gpu.CopyToDevice(center);
             // launch kernel. gridsize = N, blocksize = 1. Call once for coarse. Retain datasets on device, update steps and run again centered around minimum.
-            gpu.Launch(xSteps.Length, 1).driftCorrect(device_firstDataSet, device_secondDataSet, device_xSteps, device_ySteps, device_zSteps, minDist, device_result);
-                // Collect results.
 
-            double[] result = new double[xSteps.Length];
+            gpu.Launch(nrXsteps * nrYsteps * nrZsteps, 1).driftCorrect(device_firstDataSet, device_secondDataSet, device_center, xyStep, zStep, minDist, device_result);
+            // Collect results.
+
+            double[] result = new double[nrXsteps * nrYsteps * nrZsteps];
             gpu.CopyFromDevice(device_result, result);
             double maxDist = 0;
-            int xCenter = 0;
-            int yCenter = 0;
-            int zCenter = 0;
             int indexing = 0;
-            for (int j = 0; j < result.Length; j++)
+            for (int j = 0; j < nrXsteps * nrYsteps * nrZsteps; j++)
             {
                 if (maxDist < result[j])
                 {
                     indexing = j;
+          //          Console.WriteLine("Idx: " + indexing + " distance: " + result[indexing]);
                     maxDist = result[j];
-                    xCenter = xSteps[j];
-                    yCenter = ySteps[j];
-                    zCenter = zSteps[j];
+   
                 }
             }
 
             Console.WriteLine("Idx: " + indexing + " distance: " + result[indexing]);
-            Console.WriteLine("driftcorr x: " + xSteps[indexing]);
-            Console.WriteLine("driftcorr y: " + ySteps[indexing]);
-            Console.WriteLine("driftcorr z: " + zSteps[indexing]);
+            int dimXY = 21;
+            int dimZ = 21;
+            double[] drift = new double[3];
+            drift[0] = indexing % dimXY;
+            drift[1] = indexing / dimXY;
+            drift[2] = drift[1] % dimZ;
+            drift[1] = drift[1] % dimZ;
 
-            // generate new steps:
-            count = 0;
-            int[] xStepsFine = new int[26 * 26 * 26];
-            int[] yStepsFine = new int[26 * 26 * 26];
-            int[] zStepsFine = new int[26 * 26 * 26];
-            for (int x = xCenter - 25; x <= xCenter + 25; x = x + 2)
+            center[0] += -xyStep * ((dimXY - 1) / 2 - drift[0]);
+            center[1] += -xyStep * ((dimXY - 1) / 2 - drift[1]);
+            center[2] += -zStep * ((dimZ - 1) / 2 - drift[2]);
+
+            Console.WriteLine(center[0]);
+            Console.WriteLine(center[1]);
+            Console.WriteLine(center[2]);
+            
+            double[] device_center2 = gpu.CopyToDevice(center);
+              
+            xyStep /= 10; // finer stepsize.
+            zStep /= 10; // finer stepsize.
+
+            gpu.Launch(nrXsteps * nrYsteps * nrZsteps, 1).driftCorrect(device_firstDataSet, device_secondDataSet, device_center2, xyStep, zStep, minDist, device_result);
+
+            //double[] result2 = new double[nrXsteps * nrYsteps * nrZsteps];
+            gpu.CopyFromDevice(device_result, result);
+            maxDist = 0;
+            indexing = 0;
+            for (int j = 0; j < nrXsteps * nrYsteps * nrZsteps; j++)
             {
-                for (int y = yCenter - 25; y <= yCenter + 25; y = y + 2)
+                if (maxDist < result[j])
                 {
-                    for (int z = zCenter - 25; z <= zCenter + 25; z = z + 2)
-                    {
-                        xStepsFine[count] = x;
-                        yStepsFine[count] = y;
-                        zStepsFine[count] = z;
-                        count++;
-                    }
+                    indexing = j;
+       //             Console.WriteLine("Idx: " + indexing + " distance: " + result2[indexing]);
+                    maxDist = result[j];
+
                 }
             }
-            // remove old:
-            gpu.Free(device_xSteps);
-            gpu.Free(device_ySteps);
-            gpu.Free(device_zSteps);
-            // update:
-            int[] device_xStepsFine = gpu.CopyToDevice(xStepsFine);
-            int[] device_yStepsFine = gpu.CopyToDevice(yStepsFine);
-            int[] device_zStepsFine = gpu.CopyToDevice(zStepsFine);
-    //        gpu.Launch(xSteps.Length, 1).driftCorrect(device_firstDataSet, device_secondDataSet, device_xStepsFine, device_yStepsFine, device_zStepsFine, minDist, device_result);
 
-            gpu.CopyFromDevice(device_result, result);
+            Console.WriteLine("Idx: " + indexing + " distance: " + result[indexing]);
+            
+            drift [0] = indexing % dimXY;
+            drift[1] = indexing / dimXY;
+            drift[2]  = drift[1] % dimZ;
+            drift[1] = drift[1]  % dimZ;
+
+            center[0] += -2.5 * ((dimXY - 1) / 2 - drift[0]);
+            center[1] += -2.5 * ((dimXY - 1) / 2 - drift[1]);
+            center[2] += -2.5 * ((dimZ - 1) / 2 - drift[2]);
+
+            Console.WriteLine(center[0]);
+            Console.WriteLine(center[1]);
+            Console.WriteLine(center[2]);
+            
             //Profile:
             watch.Stop();
             //  Console.WriteLine("compute time: " + watch.ElapsedMilliseconds);
@@ -132,52 +135,60 @@ namespace KernelDevelopment
                 // Clear gpu.
                 gpu.FreeAll();
                 gpu.HostFreeAll();
-           indexing = 0;
-            for (int j = 0; j < result.Length; j++)
-            {
-                if (maxDist < result[j])
-                {
-                    indexing = j;
-                    maxDist = result[j];
-                    xCenter = xStepsFine[j];
-                    yCenter = yStepsFine[j];
-                    zCenter = zStepsFine[j];
-                }
-            }
+  /*         indexing = 0;
+          
+
 
                     Console.WriteLine("Idx: " + indexing + " distance: " + result[indexing]);
                     Console.WriteLine("driftcorr x: " + xStepsFine[indexing]);
                     Console.WriteLine("driftcorr y: " + yStepsFine[indexing]);
                     Console.WriteLine("driftcorr z: " + zStepsFine[indexing]);
-                    
+                    */
             Console.ReadKey(); // keep console up.
         } // Execute()
 
+
+
         [Cudafy]
 
-        public static void driftCorrect(GThread thread, int[] firstDataSet, int[] secondDataSet, int[] xStep, int[] yStep, int[] zStep, double minDist, double[] result)
+        public static void driftCorrect(GThread thread, int[] firstDataSet, int[] secondDataSet,double[] center, double xyStep, double zStep, double minDist, double[] result)
         {
-            
+
             int idx = thread.blockIdx.x;
-            
-            if (idx < xStep.Length)
+            if (idx < 9261)
             {
-                int xdist = 0; // distance between particles in x direction.
-                int ydist = 0; // distance between particles in y direction.
-                int zdist = 0; // distance between particles in z direction.
+                int dimXY = 21;
+                int dimZ = 21;
+                // get x y and z coordinates from single vector:
+                
+                
+                
+                int x = idx % dimXY;
+                int y = idx / dimXY;
+                int z = y % dimZ;
+                y = y % dimZ;
+                double xdist = 0; // distance between particles in x direction.
+                double ydist = 0; // distance between particles in y direction.
+                double zdist = 0; // distance between particles in z direction.
                 double distance = 0; // distance between particles of the two datasets.
                 result[idx] = 0;  // as this kernel is called multiple times, reset result vector.
-                for(int Particle = 0; Particle < firstDataSet.Length; Particle = Particle + 3)// loop over all particles in the first dataset.
+
+                // calculate offset:
+                double lambdaX = center[0] - xyStep * ((dimXY - 1) / 2 - x );
+                double lambdaY = center[1] - xyStep * ((dimXY - 1) / 2 - y );
+                double lambdaZ = center[2] - zStep * ((dimZ - 1) / 2 - z);
+
+                for (int Particle = 0; Particle < firstDataSet.Length; Particle = Particle + 3)// loop over all particles in the first dataset.
                 {
                     for (int targetParticle = 0; targetParticle < secondDataSet.Length; targetParticle = targetParticle + 3) // loop over all particles in the second dataset.
                     {
-                        xdist = (firstDataSet[Particle] - secondDataSet[targetParticle] - xStep[idx]) * (firstDataSet[Particle] - secondDataSet[targetParticle] - xStep[idx]);
+                        xdist = (firstDataSet[Particle] - secondDataSet[targetParticle] - lambdaX) * (firstDataSet[Particle] - secondDataSet[targetParticle] - lambdaX);
                         if (xdist < minDist)
                         {
-                            ydist = (firstDataSet[Particle+1] - secondDataSet[targetParticle+1] - yStep[idx]) * (firstDataSet[Particle+1] - secondDataSet[targetParticle+1] - yStep[idx]);
+                            ydist = (firstDataSet[Particle + 1] - secondDataSet[targetParticle + 1] - lambdaY) * (firstDataSet[Particle + 1] - secondDataSet[targetParticle + 1] - lambdaY);
                             if (ydist < minDist)
                             {
-                                zdist = (firstDataSet[Particle + 2] - secondDataSet[targetParticle + 2] - zStep[idx]) * (firstDataSet[Particle + 2] - secondDataSet[targetParticle + 2] - zStep[idx]);
+                                zdist = (firstDataSet[Particle + 2] - secondDataSet[targetParticle + 2] - lambdaZ) * (firstDataSet[Particle + 2] - secondDataSet[targetParticle + 2] - lambdaZ);
                                 if (zdist < minDist)
                                 {
                                     distance = xdist + ydist + zdist;
@@ -189,9 +200,11 @@ namespace KernelDevelopment
                             }
                         }
                     }
-                }
-            }            
+                }                
+            }
         }// end driftCorrect.
+
+    
 
         public static int[] generateTest(int N, int drift)
         {

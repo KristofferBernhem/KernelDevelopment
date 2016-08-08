@@ -13,7 +13,7 @@ namespace KernelDevelopment
         {
             //medianFiltering.Execute(); // test median filtering.
             //gaussFit.Execute();
-            //driftCorr.Execute();
+            driftCorr.Execute();
 
             // http://numerics.mathdotnet.com/Matrix.html for details:
 
