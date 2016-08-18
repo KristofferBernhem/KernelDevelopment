@@ -42,7 +42,7 @@ namespace KernelDevelopment
             }
             double[] timers= { 0, 0, 0, 0, 0 };
             int count = 0;
-            int[] Ntests = { 100, 1000, 5000, 10000 };
+            int[] Ntests = { 100, 1000, 5000, 10000, 20000 };
             for (int i = 0; i < Ntests.Length; i++)
             {
                 int N = Ntests[i]; // number of gaussians to fit.
@@ -82,8 +82,10 @@ namespace KernelDevelopment
                 double[] device_bounds          = gpu.CopyToDevice(bounds);
                 double[] device_steps           = gpu.CopyToDevice(steps);
 
-                // launch kernel. gridsize = N, blocksize = 1.
-                gpu.Launch(N, 1).gaussFitterAdaptive(device_gaussVector, device_parameterVector, windowWidth, device_bounds, device_steps);
+
+                int N_squared = (int)Math.Ceiling(Math.Sqrt(N)); // launch kernel. gridsize = N_squared x N_squared, blocksize = 1.
+
+                gpu.Launch(new dim3(N_squared, N_squared), 1).gaussFitterAdaptive(device_gaussVector, device_parameterVector, windowWidth, device_bounds, device_steps);
                 
                 // Collect results.
                 double[] result = new double[7 * N];                // allocate memory for all parameters.
@@ -118,7 +120,12 @@ namespace KernelDevelopment
          */
         public static void gaussFitterAdaptive(GThread thread, int[] gaussVector, double[] P, ushort windowWidth, double[] bounds, double[] stepSize)
         {
-            int idx = thread.blockIdx.x;        // get index for current thread.            
+            int xIdx = thread.blockIdx.x;
+            int yIdx = thread.blockIdx.y;
+
+            int idx = xIdx + thread.gridDim.x * yIdx;
+            
+            //int idx = thread.blockIdx.x;        // get index for current thread.            
             if (idx < gaussVector.Length / (windowWidth * windowWidth))  // if current idx points to a location in input.
             {
                 ///////////////////////////////////////////////////////////////////

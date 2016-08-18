@@ -12,9 +12,9 @@ namespace KernelDevelopment
         static void Main(string[] args)
         {
             //medianFiltering.Execute(); // test median filtering.
-            gaussFit.Execute();
-            //driftCorr.Execute();
-
+            //gaussFit.Execute();
+            driftCorr.Execute();
+            //TestGPU.Execute();
             // http://numerics.mathdotnet.com/Matrix.html for details:
 
             // simple scheme for quick gauss fit using least square (matlab code functional). Use this to get initial guess.
