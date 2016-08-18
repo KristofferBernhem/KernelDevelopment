@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using MathNet.Numerics;
-using MathNet.Numerics.LinearAlgebra;
+//using MathNet.Numerics;
+//using MathNet.Numerics.LinearAlgebra;
 namespace KernelDevelopment
 {
     class Program
@@ -12,8 +12,8 @@ namespace KernelDevelopment
         static void Main(string[] args)
         {
             //medianFiltering.Execute(); // test median filtering.
-            //gaussFit.Execute();
-            driftCorr.Execute();
+            gaussFit.Execute();
+            //driftCorr.Execute();
 
             // http://numerics.mathdotnet.com/Matrix.html for details:
 

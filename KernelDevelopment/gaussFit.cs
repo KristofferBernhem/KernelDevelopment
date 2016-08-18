@@ -42,9 +42,10 @@ namespace KernelDevelopment
             }
             double[] timers= { 0, 0, 0, 0, 0 };
             int count = 0;
-            for (int i = 10; i < 10005; i*=10)
+            int[] Ntests = { 100, 1000, 5000, 10000 };
+            for (int i = 0; i < Ntests.Length; i++)
             {
-                int N = i; // number of gaussians to fit.
+                int N = Ntests[i]; // number of gaussians to fit.
                 int[] gaussVector = generateGauss(N);
                 double[] parameterVector = generateParameters(N);
                 
@@ -83,7 +84,6 @@ namespace KernelDevelopment
 
                 // launch kernel. gridsize = N, blocksize = 1.
                 gpu.Launch(N, 1).gaussFitterAdaptive(device_gaussVector, device_parameterVector, windowWidth, device_bounds, device_steps);
-
                 
                 // Collect results.
                 double[] result = new double[7 * N];                // allocate memory for all parameters.
@@ -103,8 +103,8 @@ namespace KernelDevelopment
                     Console.WriteLine("P " + j + ": " + result[j]);
             }
             // profiling.
-            for (int i = 0; i < 5; i++)
-                Console.Out.WriteLine("compute time: " + timers[i]);
+            for (int i = 0; i < Ntests.Length; i++)
+                Console.Out.WriteLine("compute time for : " + Ntests[i] + " particles: " + timers[i] + " ms");
 
             Console.ReadKey(); // keep console up.
         } // Execute()
