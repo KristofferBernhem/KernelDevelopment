@@ -35,13 +35,13 @@ namespace KernelDevelopment
                 prop = gpu.GetDeviceProperties(false);
             }
             // Setup
-            int width           = 50;  // filter window width.
-            int depth           = 2500; // z.
-            int framewidth      = 32;
-            int frameheight     = 32;
-            int N               = depth * framewidth * frameheight;   // size of entry.
+            int width           = 50;                                       // filter window width.
+            int depth           = 10000;                                    // z.
+            int framewidth      = 64;
+            int frameheight     = 64;
+            int N               = depth * framewidth * frameheight;         // size of entry.
             int[] meanVector    = medianFiltering.generateTest(depth);      // frame mean value.
-            int[] test_data     = medianFiltering.generateTest(N, depth);    // pixel values organized as: x1y1z1, x1y1z2,...,x1y1zn, x2y1z1,...                                                               
+            int[] test_data     = medianFiltering.generateTest(N, depth);   // pixel values organized as: x1y1z1, x1y1z2,...,x1y1zn, x2y1z1,...                                                               
             // Profiling:
             Stopwatch watch     = new Stopwatch();
             watch.Start();
@@ -54,7 +54,7 @@ namespace KernelDevelopment
 
             // Run kernel.
 
-            gpu.Launch(new dim3(framewidth, frameheight), framewidth).medianKernel(width, device_window, depth, device_data, device_meanVector, device_result);
+            gpu.Launch(new dim3(framewidth, frameheight), 1).medianKernel(width, device_window, depth, device_data, device_meanVector, device_result);
             
             // Collect results.
             int[] result = new int[N];
