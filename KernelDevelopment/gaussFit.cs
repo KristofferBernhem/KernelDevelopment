@@ -42,7 +42,8 @@ namespace KernelDevelopment
             }
             double[] timers= { 0, 0, 0, 0, 0 };
             int count = 0;
-            int[] Ntests = { 100, 1000, 5000, 10000, 20000 };
+//            int[] Ntests = { 100, 1000, 5000, 10000, 20000 };
+            int[] Ntests = { 100, 1000};
             for (int i = 0; i < Ntests.Length; i++)
             {
                 int N = Ntests[i]; // number of gaussians to fit.
@@ -51,23 +52,23 @@ namespace KernelDevelopment
                 
                 // low-high for each parameter. Bounds are inclusive.
                 double[] bounds = {
-                              200, 350,         // amplitude, should be close to center pixel value. Add +/-20 % of center pixel, not critical for performance.
+                              0.7,  1.5,         // amplitude, should be close to center pixel value. Add +/-20 % of center pixel, not critical for performance.
                               1.5,  2.5,        // x coordinate. Center has to be around the center pixel if gaussian distributed.
                               1.5,  2.5,        // y coordinate. Center has to be around the center pixel if gaussian distributed.
                               0.5,  2.5,        // sigma x. Based on window size.
                               0.5,  2.5,        // sigma y. Based on window size.
                                 0, .785,        // Theta. 0.785 = pi/4. Any larger and the same result can be gained by swapping sigma x and y, symetry yields only positive theta relevant.
-                              -50,  50};        // offset, best estimate, not critical for performance.
+                              -0.25, 0.25};        // offset, best estimate, not critical for performance.
                 
                 // steps is the most critical for processing time. Final step is 1/25th of these values. 
                 double[] steps = {
-                                50,             // amplitude, make final step 5% of max signal.
+                                0.25,             // amplitude, make final step 5% of max signal.
                                 0.25,           // x step, final step = 1 nm.
                                 0.25,           // y step, final step = 1 nm.
                                 0.5,            // sigma x step, final step = 2 nm.
                                 0.5,            // sigma y step, final step = 2 nm.
                                 0.19625,        // theta step, final step = 0.00785 radians. Start value == 25% of bounds.
-                                10};            // offset, make final step 1% of signal.
+                                0.025};            // offset, make final step 1% of signal.
 
                 int windowWidth = 5;            // window for gauss fitting.
 
@@ -159,13 +160,13 @@ namespace KernelDevelopment
                 double ThetaC       = 0;
                 double inputRsquare = 0;
                 double tempRsquare  = 0;
-                double ampStep      = stepSize[0];
+                double ampStep      = stepSize[0] * P[pIdx];
                 double xStep        = stepSize[1];
                 double yStep        = stepSize[2];
                 double sigmaxStep   = stepSize[3];
                 double sigmayStep   = stepSize[4];
-                double thetaStep    = stepSize[5];                
-                double offsetStep   = stepSize[6];
+                double thetaStep    = stepSize[5];
+                double offsetStep   = stepSize[6] * P[pIdx];
                 double sigmax2      = 0;
                 double sigmay2      = 0;
                 double sigmax       = 0;
@@ -175,7 +176,11 @@ namespace KernelDevelopment
                 double y            = 0;
                 int xyIndex         = 0;
                 double photons      = 0;
-
+                double ampLowBound  = P[pIdx] * bounds[0];  // amplitude bounds are in fraction of center pixel value.
+                double ampHighBound = P[pIdx] * bounds[1];  // amplitude bounds are in fraction of center pixel value.
+                double offLowBound  = P[pIdx] * bounds[12];  // offset bounds are in fraction of center pixel value.
+                double offHighBound = P[pIdx] * bounds[13];  // offset bounds are in fraction of center pixel value.
+                int stepRefinement  = 0;
                 ///////////////////////////////////////////////////////////////////
                 /////// optimze x, y, sigma x, sigma y and theta in parallel. /////
                 ///////////////////////////////////////////////////////////////////
@@ -292,13 +297,14 @@ namespace KernelDevelopment
                     loopcounter++;
                     if (inputRsquare == Rsquare) // if no improvement was made.
                     {
-                        if (xStep != stepSize[1] / 25) // if stepsize has not been decreased twice already.
+                        if (stepRefinement < 2) // if stepsize has not been decreased twice already.
                         {
                             xStep           = xStep         / 5;
                             yStep           = yStep         / 5;
                             sigmaxStep      = sigmaxStep    / 5;
                             sigmayStep      = sigmayStep    / 5;
                             thetaStep       = thetaStep     / 5;
+                            stepRefinement++;
                         }
                         else
                             optimize = false; // exit.
@@ -311,12 +317,13 @@ namespace KernelDevelopment
             ////// optimize  amplitude and offset. Only used for photon estimate. ///////
             /////////////////////////////////////////////////////////////////////////////
 
-                // no need to recalculate these for offset and amplitude:
-            ThetaA = Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) + Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+            // no need to recalculate these for offset and amplitude:
+            ThetaA      = Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) + Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
             ThetaB      = -Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 3] * P[pIdx + 3]) + Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 4] * P[pIdx + 4]);
             ThetaC      = Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) + Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
             optimize    = true; // reset.
             loopcounter = 0; // reset.
+            stepRefinement = 0; // reset.   
             while (optimize) // optimze amplitude and offset.
             {
                 inputRsquare = Rsquare; // before loop.
@@ -325,8 +332,8 @@ namespace KernelDevelopment
                     for (double offset = P[pIdx + 6] - offsetStep; offset <= P[pIdx + 6] + offsetStep; offset = offset + offsetStep)
                     {
                         tempRsquare = 0;
-                        if (amp > bounds[0] && amp < bounds[1] &&
-                            offset > bounds[12] && offset < bounds[13])
+                        if (amp > ampLowBound && amp < ampHighBound &&
+                            offset > offLowBound && offset < offHighBound)
                         {
                             for (xyIndex = 0; xyIndex < windowWidth * windowWidth; xyIndex++)
                             {
@@ -354,10 +361,11 @@ namespace KernelDevelopment
                 loopcounter++;
                 if (inputRsquare == Rsquare) // if no improvement was made.
                 {
-                    if (ampStep != stepSize[0] / 25) // if stepsize has not been decreased twice already.
+                    if (stepRefinement < 2) // if stepsize has not been decreased twice already.
                     {
                         ampStep = ampStep / 5;
                         offsetStep = offsetStep / 5;
+                        stepRefinement++;
                     }
                     else
                         optimize = false; // exit.
@@ -365,11 +373,11 @@ namespace KernelDevelopment
                 if (loopcounter > 1000) // exit.
                     optimize = false;
                 }// optimize while loop
-
+                
                 ///////////////////////////////////////////////////////////////////
                 ///////////////////////// Final output: ///////////////////////////
                 ///////////////////////////////////////////////////////////////////
-
+                
                 for (xyIndex = 0; xyIndex < windowWidth * windowWidth; xyIndex++)
                 {
                     xi = xyIndex % windowWidth;
@@ -384,8 +392,9 @@ namespace KernelDevelopment
                 }
                 tempRsquare     = (tempRsquare / totalSumOfSquares);
                 P[pIdx]         = photons;          // set amplitude to photon count.
-                P[pIdx + 6]     = 1 - tempRsquare;  // set offset to r^2;
+                P[pIdx + 6]     = 1 - tempRsquare;  // set offset to r^2;                                 
             } //idx check.
+                 
         } // gaussFitterAdaptive.
         
 
