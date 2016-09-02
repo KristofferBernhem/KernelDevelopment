@@ -14,13 +14,7 @@ namespace KernelDevelopment
     class gaussFit
     {
         /*
-         * Brute force version:
-         * Currently 9-12x faster compared to parallelized CPU version. more speedup most likely possible.
-         * 5k fits in ~6s on gtx970 card. Might be furhter improved by looking at kernel call. 
-         * 
-         * Adaptive version:
-         * Currently ~30-40x faster compared to parallelized CPU version. 10k fits in ~6 seconds on gtx970 card. 
-         * Further optimization most likely possible.
+         * GTX1080 card: 10k fits in 2700 ms, 3x faster then LM and 10x faster then CPU adaptive version.
          */ 
         public static void Execute()
         {
@@ -43,34 +37,34 @@ namespace KernelDevelopment
             double[] timers= { 0, 0, 0, 0, 0 };
             int count = 0;
 //            int[] Ntests = { 100, 1000, 5000, 10000, 20000 };
-            int[] Ntests = { 100, 1000};
+            int[] Ntests = { 100, 1000,2000,5000};
             for (int i = 0; i < Ntests.Length; i++)
             {
                 int N = Ntests[i]; // number of gaussians to fit.
                 int[] gaussVector = generateGauss(N);
                 double[] parameterVector = generateParameters(N);
-                
+                int windowWidth = 7;            // window for gauss fitting.
                 // low-high for each parameter. Bounds are inclusive.
                 double[] bounds = {
-                              0.7,  1.5,         // amplitude, should be close to center pixel value. Add +/-20 % of center pixel, not critical for performance.
-                              1.5,  2.5,        // x coordinate. Center has to be around the center pixel if gaussian distributed.
-                              1.5,  2.5,        // y coordinate. Center has to be around the center pixel if gaussian distributed.
-                              0.5,  2.5,        // sigma x. Based on window size.
-                              0.5,  2.5,        // sigma y. Based on window size.
+                              0.8,  1.2,         // amplitude, should be close to center pixel value. Add +/-20 % of center pixel, not critical for performance.
+                              (windowWidth-1)/2.0-1,  (windowWidth-1)/2.0+1,        // x coordinate. Center has to be around the center pixel if gaussian distributed.
+                              (windowWidth-1)/2.0-1,  (windowWidth-1)/2.0+1,        // y coordinate. Center has to be around the center pixel if gaussian distributed.
+                              windowWidth/9.0,  windowWidth/2.0,        // sigma x. Based on window size.
+                              windowWidth/9.0,  windowWidth/2.0,        // sigma y. Based on window size.
                                 0, .785,        // Theta. 0.785 = pi/4. Any larger and the same result can be gained by swapping sigma x and y, symetry yields only positive theta relevant.
-                              -0.25, 0.25};        // offset, best estimate, not critical for performance.
+                              -0.1, 0.1};        // offset, best estimate, not critical for performance.
                 
                 // steps is the most critical for processing time. Final step is 1/25th of these values. 
                 double[] steps = {
-                                0.25,             // amplitude, make final step 5% of max signal.
+                                0.125,             // amplitude, make final step 5% of max signal.
                                 0.25,           // x step, final step = 1 nm.
                                 0.25,           // y step, final step = 1 nm.
                                 0.5,            // sigma x step, final step = 2 nm.
                                 0.5,            // sigma y step, final step = 2 nm.
                                 0.19625,        // theta step, final step = 0.00785 radians. Start value == 25% of bounds.
-                                0.025};            // offset, make final step 1% of signal.
+                                0.0125};            // offset, make final step 1% of signal.
 
-                int windowWidth = 5;            // window for gauss fitting.
+                
 
 
                 // Profiling:
@@ -135,17 +129,22 @@ namespace KernelDevelopment
 
                 int pIdx = 7 * idx;                         // parameter indexing.
                 int gIdx = windowWidth * windowWidth * idx; // gaussVector indexing.
-
+                double mx = 0; // moment in x (first order).
+                double my = 0; // moment in y (first order).                
                 double InputMean = 0;                       // Mean value of input pixels.
-                for (int i = 0; i < windowWidth * windowWidth; i++)
-                    InputMean += gaussVector[gIdx + i];
-
+                for (int i = 0; i < windowWidth * windowWidth; i++) {
+                    InputMean += gaussVector[gIdx + i];                    
+                    mx += (i % windowWidth) * gaussVector[gIdx + i];
+                    my += (i / windowWidth) * gaussVector[gIdx + i];                    
+                }
+                P[pIdx + 1] = mx / InputMean; // weighted centroid as initial guess of x0.
+                P[pIdx + 2] = my / InputMean; // weighted centroid as initial guess of y0.
                 InputMean = InputMean / (windowWidth * windowWidth); // Mean value of input pixels.
 
                 double totalSumOfSquares = 0;               // Total sum of squares of the gaussian-InputMean, for calculating Rsquare.
                 for (int i = 0; i < windowWidth * windowWidth; i++)
                     totalSumOfSquares += (gaussVector[gIdx + i] - InputMean) * (gaussVector[gIdx + i] - InputMean);
-
+                
                 ///////////////////////////////////////////////////////////////////
                 //////////////////// intitate variables. //////////////////////////
                 ///////////////////////////////////////////////////////////////////
@@ -223,12 +222,12 @@ namespace KernelDevelopment
                                                         residual = P[pIdx + 0] * Math.Exp(-(ThetaA * (xi - x) * (xi - x) -
                                                                 2 * ThetaB * (xi - x) * (yi - y) +
                                                                 ThetaC * (yi - y) * (yi - y)
-                                                                )) + P[pIdx + 6] - gaussVector[gIdx + xyIndex];
+                                                                )) - gaussVector[gIdx + xyIndex];
 
                                                         tempRsquare += residual * residual;
                                                     }
                                                     tempRsquare = (tempRsquare / totalSumOfSquares);  // normalize.
-                                                    if (tempRsquare < 0.999 * Rsquare)                // If improved, update variables.
+                                                    if (tempRsquare < 0.99 * Rsquare)                // If improved, update variables.
                                                     {
                                                         Rsquare = tempRsquare;
                                                         P[pIdx + 1] = x;
@@ -245,14 +244,14 @@ namespace KernelDevelopment
                                 } //  theta loop.
                             } else // if sigmax and sigmay are the same, theta = 0 as the gaussian is perfectly circular. 
                             {
-                                theta = 0;
+                               theta = 0;
                                 if (sigmax >= bounds[6] && sigmax <= bounds[7] && // Check that the current parameters are within the allowed range.
                                     sigmay >= bounds[8] && sigmay <= bounds[9])
                                 {
                                     // calulating these at this point saves computation time.
-                                    ThetaA = Math.Cos(theta) * Math.Cos(theta) / (2 * sigmax2) + Math.Sin(theta) * Math.Sin(theta) / (2 * sigmay2);
-                                    ThetaB = -Math.Sin(2 * theta) / (4 * sigmax2) + Math.Sin(2 * theta) / (4 * sigmay2);
-                                    ThetaC = Math.Sin(theta) * Math.Sin(theta) / (2 * sigmax2) + Math.Cos(theta) * Math.Cos(theta) / (2 * sigmay2);
+                                    ThetaA = 1 / (2 * sigmax2);
+                                    ThetaB = 0;
+                                    ThetaC = 1 / (2 * sigmay2);
 
                                     for (x = P[pIdx + 1] - xStep; x <= P[pIdx + 1] + xStep; x += xStep)
                                     {
@@ -270,12 +269,12 @@ namespace KernelDevelopment
                                                     residual = P[pIdx + 0] * Math.Exp(-(ThetaA * (xi - x) * (xi - x) -
                                                             2 * ThetaB * (xi - x) * (yi - y) +
                                                             ThetaC * (yi - y) * (yi - y)
-                                                            )) + P[pIdx + 6] - gaussVector[gIdx + xyIndex];
+                                                            )) - gaussVector[gIdx + xyIndex];
 
                                                     tempRsquare += residual * residual;
                                                 }
                                                 tempRsquare = (tempRsquare / totalSumOfSquares);  // normalize.
-                                                if (tempRsquare < 0.999 * Rsquare)                // If improved, update variables.
+                                                if (tempRsquare < 0.99 * Rsquare)                // If improved, update variables.
                                                 {
                                                     Rsquare = tempRsquare;
                                                     P[pIdx + 1] = x;
@@ -283,21 +282,18 @@ namespace KernelDevelopment
                                                     P[pIdx + 3] = sigmax;
                                                     P[pIdx + 4] = sigmay;
                                                     P[pIdx + 5] = theta;
-
                                                 } // update parameters
                                             }// bounds check.
                                         } // y loop.
                                     } // x loop.
                                 } // Theta check.
-
-
                             }
                         } // sigma y loop.
                     } // sigmax loop.
                     loopcounter++;
                     if (inputRsquare == Rsquare) // if no improvement was made.
                     {
-                        if (stepRefinement < 2) // if stepsize has not been decreased twice already.
+                        if (stepRefinement < 3) // if stepsize has not been decreased twice already.
                         {
                             xStep           = xStep         / 5;
                             yStep           = yStep         / 5;
@@ -309,7 +305,7 @@ namespace KernelDevelopment
                         else
                             optimize = false; // exit.
                     }
-                    if (loopcounter > 1000) // exit.
+                    if (loopcounter > 500) // exit.
                         optimize = false;
                 } // optimize while loop.
 
@@ -347,7 +343,7 @@ namespace KernelDevelopment
                                 tempRsquare += residual * residual;
                             }
                             tempRsquare = (tempRsquare / totalSumOfSquares);  // normalize.
-                            if (tempRsquare < 0.999 * Rsquare)// If improved, update variables.
+                            if (tempRsquare < 0.99 * Rsquare)// If improved, update variables.
                             {
                                 Rsquare     = tempRsquare;
                                 P[pIdx]     = amp;
@@ -361,7 +357,7 @@ namespace KernelDevelopment
                 loopcounter++;
                 if (inputRsquare == Rsquare) // if no improvement was made.
                 {
-                    if (stepRefinement < 2) // if stepsize has not been decreased twice already.
+                    if (stepRefinement < 3) // if stepsize has not been decreased twice already.
                     {
                         ampStep = ampStep / 5;
                         offsetStep = offsetStep / 5;
@@ -370,7 +366,7 @@ namespace KernelDevelopment
                     else
                         optimize = false; // exit.
                 }
-                if (loopcounter > 1000) // exit.
+                if (loopcounter > 500) // exit.
                     optimize = false;
                 }// optimize while loop
                 
@@ -593,14 +589,24 @@ namespace KernelDevelopment
          */
         public static int[] generateGauss(int N)
         {
-            int[] gaussVector = new int[5 * 5 * N];
-            int[] single_gauss = { 
-                0  ,12 ,25 ,12 ,0  ,
-                12 ,89 ,153,89 ,12 ,
-                25 ,153,255,153,25 ,
-                12 ,89 ,153,89 ,12 ,
-                0  ,12 ,25 ,12 ,0  ,
-            }; 
+            int[] gaussVector = new int[7 * 7 * N];
+            int[] single_gauss = {/* 
+				388, 398,  619,   419, 366,  347, 313,
+				638, 819,  1236, 1272, 603,  536, 340, 
+				619, 1376, 2153, 2052, 974,  619, 289,
+				641, 1596, 2560, 2808, 1228, 449, 240,
+				481, 1131, 1537, 1481, 801,  451, 336,
+				294, 468,  716,   564, 582,  345, 291,
+				278, 316,  451,   419, 347,  276, 291
+		};*/
+				3888, 3984,  6192,   4192, 3664,  3472, 3136,
+				6384, 8192,  12368, 12720, 6032,  5360, 3408, 
+				6192, 13760, 21536, 20528, 9744,  6192, 2896,
+				6416, 15968, 25600, 28080, 12288, 4496, 2400,
+				4816, 11312, 15376, 14816, 8016,  4512, 3360,
+				2944, 4688,  7168,   5648, 5824,  3456, 2912,
+				2784, 3168,  4512,   4192, 3472,  2768, 2912
+		};
             for(int i = 0; i < N; i++)
             {
                 for(int j = 0; j < single_gauss.Length; j++)
@@ -618,7 +624,7 @@ namespace KernelDevelopment
         {
             double[] parameters = new double[7 * N];
             double[] singleParameter = new double[7];
-            singleParameter[0] = 255;   // amplitude.
+            singleParameter[0] = 28080; // amplitude.
             singleParameter[1] = 2.5;   // x0.
             singleParameter[2] = 2.5;   // y0.
             singleParameter[3] = 1.5;   // sigma x.
