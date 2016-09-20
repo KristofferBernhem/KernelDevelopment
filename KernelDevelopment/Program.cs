@@ -12,7 +12,9 @@ namespace KernelDevelopment
         static void Main(string[] args)
         {
             //medianFiltering.Execute(); // test median filtering.
-            gaussFit.Execute();
+            medianFilteringShort.Execute(); // test median filtering.
+            //gaussFit.Execute();
+            //gaussFitShort.Execute();
             //driftCorr.Execute();
             //TestGPU.Execute();
             // http://numerics.mathdotnet.com/Matrix.html for details:

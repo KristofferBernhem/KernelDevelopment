@@ -14,7 +14,7 @@ namespace KernelDevelopment
     class gaussFit
     {
         /*
-         * GTX1080 card: 10k fits in 1400 ms, 8x faster then LM and the CPU adaptive version.
+         * GTX1080 card: 10k fits in 680 ms, 15x faster then LM and the CPU adaptive version.
          */ 
         public static void Execute()
         {
@@ -34,10 +34,10 @@ namespace KernelDevelopment
             {
                 prop = gpu.GetDeviceProperties(false);
             }
-            double[] timers= { 0, 0, 0, 0, 0 };
+            double[] timers= { 0, 0, 0, 0, 0 , 0};
             int count = 0;
 //            int[] Ntests = { 100, 1000, 5000, 10000, 20000 };
-            int[] Ntests = { 100, 1000, 2000, 5000, 10000};
+            int[] Ntests = {10000};
             for (int i = 0; i < Ntests.Length; i++)
             {
                 int N = Ntests[i]; // number of gaussians to fit.
@@ -49,9 +49,9 @@ namespace KernelDevelopment
 
                 // low-high for each parameter. Bounds are inclusive.
                 double[] bounds = {
-                              0.5,  1.4,         // amplitude, should be close to center pixel value. Add +/-20 % of center pixel, not critical for performance.
-                              0,  windowWidth-1,        // x coordinate. Center has to be around the center pixel if gaussian distributed.
-                              0,  windowWidth-1,        // y coordinate. Center has to be around the center pixel if gaussian distributed.
+                              0.5,  1.5,         // amplitude, should be close to center pixel value. Add +/-20 % of center pixel, not critical for performance.
+                              1,  windowWidth-1,        // x coordinate. Center has to be around the center pixel if gaussian distributed.
+                              1,  windowWidth-1,        // y coordinate. Center has to be around the center pixel if gaussian distributed.
                               0.7,  windowWidth/2.0,        // sigma x. Based on window size.
                               0.7,  windowWidth/2.0,        // sigma y. Based on window size.
                               -.785, .785,        // Theta. 0.785 = pi/4. Any larger and the same result can be gained by swapping sigma x and y, symetry yields only positive theta relevant.
@@ -93,8 +93,8 @@ namespace KernelDevelopment
 
                 //gpu.Launch(new dim3(N_squared, N_squared), 1).gaussFitterAdaptive(device_gaussVector, device_parameterVector, windowWidth, device_bounds, device_steps);
 
-                gpu.Launch(new dim3(N_squared, N_squared), 1).gaussFitter(device_gaussVector, device_parameterVector, windowWidth, device_bounds, device_steps, convCriteria, maxIterations);
-                
+                //gpu.Launch(new dim3(N_squared, N_squared), 1).gaussFitter(device_gaussVector, device_parameterVector, windowWidth, device_bounds, device_steps, convCriteria, maxIterations);
+                gpu.Launch(new dim3(N_squared, N_squared), 1).gaussFitter2(device_gaussVector, device_parameterVector, windowWidth, device_bounds, device_steps, convCriteria, maxIterations); // faster with less overhead.
                 // Collect results.
                 double[] result = new double[7 * N];                // allocate memory for all parameters.
                 gpu.CopyFromDevice(device_parameterVector, result); // pull optimized parameters.
@@ -114,7 +114,7 @@ namespace KernelDevelopment
             }
             // profiling.
             for (int i = 0; i < Ntests.Length; i++)
-                Console.Out.WriteLine("compute time for : " + Ntests[i] + " particles: " + timers[i] + " ms");
+                Console.Out.WriteLine(" long variable compute time for : " + Ntests[i] + " particles: " + timers[i] + " ms");
 
             Console.ReadKey(); // keep console up.
         } // Execute()
@@ -314,6 +314,12 @@ namespace KernelDevelopment
                             else
                             {
                                 P[pIdx + pId] -= stepSize[pIdx + pId]; // reset.
+                                ThetaA = Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                        Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+                                ThetaB = -Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 3] * P[pIdx + 3]) +
+                                        Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 4] * P[pIdx + 4]);
+                                ThetaC = Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                        Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
                                 if (stepSize[pIdx + pId] < 0)
                                     stepSize[pIdx + pId] *= -0.6667;   // Decrease stepsize and switch direction.
                                 else
@@ -377,7 +383,535 @@ namespace KernelDevelopment
             } //idx check.
 
         } // gaussFitterAdaptive.
+       
+        
+        
+        
+        [Cudafy]
+        /*
+         * test without looping over parameter index and the required checks and simply write a longer algorithm doing all in sequence. Modified rate of stepsize improvement for different parameters. Amp+offset handled differently then others.
+         */ 
+        public static void gaussFitter2(GThread thread, int[] gaussVector, double[] P, ushort windowWidth, double[] bounds, double[] stepSize, double convCriteria, int maxIterations)
+        {
+            int idx = thread.blockIdx.x + thread.gridDim.x * thread.blockIdx.y;
+            
+            if (idx < gaussVector.Length / (windowWidth * windowWidth))  // if current idx points to a location in input.
+            {
+                ///////////////////////////////////////////////////////////////////
+                //////////////////////// Setup fitting:  //////////////////////////
+                ///////////////////////////////////////////////////////////////////
 
+                int pIdx = 7 * idx;                         // parameter indexing.
+                int gIdx = windowWidth * windowWidth * idx; // gaussVector indexing.
+                double mx = 0; // moment in x (first order).
+                double my = 0; // moment in y (first order).                
+                double InputMean = 0;                       // Mean value of input pixels.
+                for (int i = 0; i < windowWidth * windowWidth; i++)
+                {
+                    InputMean += gaussVector[gIdx + i];
+                    mx += (i % windowWidth) * gaussVector[gIdx + i];
+                    my += (i / windowWidth) * gaussVector[gIdx + i];
+                }
+                P[pIdx + 1] = mx / InputMean; // weighted centroid as initial guess of x0.
+                P[pIdx + 2] = my / InputMean; // weighted centroid as initial guess of y0.
+                InputMean = InputMean / (windowWidth * windowWidth); // Mean value of input pixels.
+
+                double totalSumOfSquares = 0;               // Total sum of squares of the gaussian-InputMean, for calculating Rsquare.
+                for (int i = 0; i < windowWidth * windowWidth; i++)
+                    totalSumOfSquares += (gaussVector[gIdx + i] - InputMean) * (gaussVector[gIdx + i] - InputMean);
+
+                ///////////////////////////////////////////////////////////////////
+                //////////////////// intitate variables. //////////////////////////
+                ///////////////////////////////////////////////////////////////////
+                Boolean optimize = true;
+                int loopcounter = 0;
+                int xi = 0;
+                int yi = 0;
+                double residual = 0;
+                double Rsquare = 1;
+                double oldRsquare = Rsquare;
+                double ThetaA = 0;
+                double ThetaB = 0;
+                double ThetaC = 0;
+                double tempRsquare = 0;
+                int xyIndex = 0;
+                double photons = 0;
+                stepSize[pIdx] *= P[pIdx];
+                stepSize[pIdx + 6] *= P[pIdx];
+
+
+
+                // calulating these at this point saves computation time (theta = 0 at this point).
+
+                ThetaA = 1 / (2 * P[pIdx + 3] * P[pIdx + 3]);
+                ThetaB = 0;
+                ThetaC = 1 / (2 * P[pIdx + 4] * P[pIdx + 4]);
+
+
+
+                while (optimize)
+                {
+                    oldRsquare = Rsquare;
+                   
+                    // amplitude          
+                    if (P[pIdx] + stepSize[pIdx] > P[pIdx] * bounds[0] &&
+                        P[pIdx] + stepSize[pIdx] < P[pIdx] * bounds[1])
+                    {
+                        P[pIdx] += stepSize[pIdx]; // take one step.
+
+                        tempRsquare = 0; // reset.
+                        for (xyIndex = 0; xyIndex < windowWidth * windowWidth; xyIndex++)
+                        {
+                            xi = xyIndex % windowWidth;
+                            yi = xyIndex / windowWidth;
+                            residual = P[pIdx + 0] * Math.Exp(-(ThetaA * (xi - P[pIdx + 1]) * (xi - P[pIdx + 1]) -
+                                    2 * ThetaB * (xi - P[pIdx + 1]) * (yi - P[pIdx + 2]) +
+                                    ThetaC * (yi - P[pIdx + 2]) * (yi - P[pIdx + 2])
+                                    )) + P[pIdx + 6] - gaussVector[gIdx + xyIndex];
+
+                            tempRsquare += residual * residual;
+                        }
+                        tempRsquare = (tempRsquare / totalSumOfSquares);  // normalize.
+                        if (tempRsquare < Rsquare)                // If improved, update variables.
+                        {
+                            Rsquare = tempRsquare;
+                        }
+                        else
+                        {
+                            P[pIdx] -= stepSize[pIdx]; // reset.
+                            if (stepSize[pIdx] < 0)
+                            {
+                                if (loopcounter > 3)
+                                    stepSize[pIdx] *= -0.8;   // Decrease stepsize and switch direction.
+                                else if (loopcounter > 6)
+                                    stepSize[pIdx] *= -0.75;
+                                else
+                                    stepSize[pIdx] *= -0.7;
+                            }
+                            else
+                                stepSize[pIdx] *= -1;         // switch direction.
+                        }
+                    }
+                    else // bounds check 
+                    {
+                        if (stepSize[pIdx] < 0)
+                        {
+                            if (loopcounter > 3)
+                                stepSize[pIdx] *= -0.8;   // Decrease stepsize and switch direction.
+                            else if (loopcounter > 6)
+                                stepSize[pIdx] *= -0.75;
+                            else
+                                stepSize[pIdx] *= -0.7;
+                        }
+                        else
+                            stepSize[pIdx] *= -1;         // switch direction.
+                    }
+                 
+                    //x        
+                    if (P[pIdx + 1] + stepSize[pIdx + 1] > bounds[2] &&
+                        P[pIdx + 1] + stepSize[pIdx + 1] < bounds[3])
+                    {
+                        P[pIdx + 1] += stepSize[pIdx + 1]; // take one step.
+
+                        tempRsquare = 0; // reset.
+                        for (xyIndex = 0; xyIndex < windowWidth * windowWidth; xyIndex++)
+                        {
+                            xi = xyIndex % windowWidth;
+                            yi = xyIndex / windowWidth;
+                            residual = P[pIdx + 0] * Math.Exp(-(ThetaA * (xi - P[pIdx + 1]) * (xi - P[pIdx + 1]) -
+                                    2 * ThetaB * (xi - P[pIdx + 1]) * (yi - P[pIdx + 2]) +
+                                    ThetaC * (yi - P[pIdx + 2]) * (yi - P[pIdx + 2])
+                                    )) + P[pIdx + 6] - gaussVector[gIdx + xyIndex];
+
+                            tempRsquare += residual * residual;
+                        }
+                        tempRsquare = (tempRsquare / totalSumOfSquares);  // normalize.
+                        if (tempRsquare < Rsquare)                // If improved, update variables.
+                        {
+                            Rsquare = tempRsquare;
+                        }
+                        else
+                        {
+                            P[pIdx + 1] -= stepSize[pIdx + 1]; // reset.
+                            if (stepSize[pIdx + 1] < 0)
+                              //  stepSize[pIdx + 1] *= -0.6667;   // Decrease stepsize and switch direction.
+                            {
+                                if (loopcounter > 3)
+                                    stepSize[pIdx + 1] *= -0.6667;   // Decrease stepsize and switch direction.
+                                else
+                                    stepSize[pIdx + 1] *= -0.75;
+                            }
+                            else
+                                stepSize[pIdx + 1] *= -1;         // switch direction.
+                        }
+                    }
+                    else // bounds check 
+                    {
+                        if (stepSize[pIdx + 1] < 0)
+                          //  stepSize[pIdx + 1] *= -0.6667;   // Decrease stepsize and switch direction.
+                        {
+                            if (loopcounter > 3)
+                                stepSize[pIdx + 1] *= -0.6667;   // Decrease stepsize and switch direction.
+                            else
+                                stepSize[pIdx + 1] *= -0.75;
+                        }
+                        else
+                            stepSize[pIdx + 1] *= -1;         // switch direction.
+                    }
+
+                    //y        
+                    if (P[pIdx + 2] + stepSize[pIdx + 2] > bounds[4] &&
+                        P[pIdx + 2] + stepSize[pIdx + 2] < bounds[5])
+                    {
+                        P[pIdx + 2] += stepSize[pIdx + 2]; // take one step.
+
+                        tempRsquare = 0; // reset.
+                        for (xyIndex = 0; xyIndex < windowWidth * windowWidth; xyIndex++)
+                        {
+                            xi = xyIndex % windowWidth;
+                            yi = xyIndex / windowWidth;
+                            residual = P[pIdx + 0] * Math.Exp(-(ThetaA * (xi - P[pIdx + 1]) * (xi - P[pIdx + 1]) -
+                                    2 * ThetaB * (xi - P[pIdx + 1]) * (yi - P[pIdx + 2]) +
+                                    ThetaC * (yi - P[pIdx + 2]) * (yi - P[pIdx + 2])
+                                    )) + P[pIdx + 6] - gaussVector[gIdx + xyIndex];
+
+                            tempRsquare += residual * residual;
+                        }
+                        tempRsquare = (tempRsquare / totalSumOfSquares);  // normalize.
+                        if (tempRsquare < Rsquare)                // If improved, update variables.
+                        {
+                            Rsquare = tempRsquare;
+                        }
+                        else
+                        {
+                            P[pIdx + 2] -= stepSize[pIdx + 2]; // reset.
+                            if (stepSize[pIdx + 2] < 0)
+                               // stepSize[pIdx + 2] *= -0.6667;   // Decrease stepsize and switch direction.
+                            {
+                                if (loopcounter > 3)
+                                    stepSize[pIdx + 2] *= -0.6667;   // Decrease stepsize and switch direction.
+                                else
+                                    stepSize[pIdx + 2] *= -0.75;
+                            }
+                            else
+                                stepSize[pIdx + 2] *= -1;         // switch direction.
+                        }
+                    }
+                    else // bounds check 
+                    {
+                        if (stepSize[pIdx + 2] < 0)
+                            //stepSize[pIdx + 2] *= -0.6667;   // Decrease stepsize and switch direction.
+                        {
+                            if (loopcounter > 3)
+                                stepSize[pIdx + 2] *= -0.6667;   // Decrease stepsize and switch direction.
+                            else
+                                stepSize[pIdx + 2] *= -0.75;
+                        }
+                        else
+                            stepSize[pIdx + 2] *= -1;         // switch direction.
+                    }                    
+
+                    // sigma x                        
+                    if ((P[pIdx + 3] + stepSize[pIdx + 3] > bounds[6]) &&
+                        (P[pIdx + 3] + stepSize[pIdx + 3] < bounds[7]))
+                    {
+                        P[pIdx + 3] += stepSize[pIdx + 3]; // take one step.
+                        // update sigma and angle dependency.
+                        ThetaA = Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+                        ThetaB = -Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 3] * P[pIdx + 3]) +
+                                Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 4] * P[pIdx + 4]);
+                        ThetaC = Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+                        tempRsquare = 0; // reset.
+                        for (xyIndex = 0; xyIndex < windowWidth * windowWidth; xyIndex++)
+                        {
+                            xi = xyIndex % windowWidth;
+                            yi = xyIndex / windowWidth;
+                            residual = P[pIdx + 0] * Math.Exp(-(ThetaA * (xi - P[pIdx + 1]) * (xi - P[pIdx + 1]) -
+                                    2 * ThetaB * (xi - P[pIdx + 1]) * (yi - P[pIdx + 2]) +
+                                    ThetaC * (yi - P[pIdx + 2]) * (yi - P[pIdx + 2])
+                                    )) + P[pIdx + 6] - gaussVector[gIdx + xyIndex];
+
+                            tempRsquare += residual * residual;
+                        }
+                        tempRsquare = (tempRsquare / totalSumOfSquares);  // normalize.
+                        if (tempRsquare < Rsquare)                // If improved, update variables.
+                        {
+                            Rsquare = tempRsquare;
+                        }
+                        else
+                        {
+                            P[pIdx + 3] -= stepSize[pIdx + 3]; // reset.
+                            ThetaA = Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                    Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+                            ThetaB = -Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 3] * P[pIdx + 3]) +
+                                    Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 4] * P[pIdx + 4]);
+                            ThetaC = Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                    Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+                            if (stepSize[pIdx + 3] < 0)
+                            //    stepSize[pIdx + 3] *= -0.6667;   // Decrease stepsize and switch direction.
+                            {
+                                if (loopcounter > 3)
+                                    stepSize[pIdx + 3] *= -0.6667;   // Decrease stepsize and switch direction.
+                                else
+                                    stepSize[pIdx + 3] *= -0.7;
+                            }
+                            else
+                                stepSize[pIdx + 3] *= -1;         // switch direction.
+                        }
+                    }
+                    else // bounds check 
+                    {
+                        if (stepSize[pIdx + 3] < 0)
+                            //stepSize[pIdx + 3] *= -0.6667;   // Decrease stepsize and switch direction.
+                        {
+                            if (loopcounter > 3)
+                                stepSize[pIdx + 3] *= -0.6667;   // Decrease stepsize and switch direction.
+                            else
+                                stepSize[pIdx + 3] *= -0.75;
+                        }
+                        else
+                            stepSize[pIdx + 3] *= -1;         // switch direction.
+                    }
+
+
+                    // sigma y                        
+                    if ((P[pIdx + 4] + stepSize[pIdx + 4] > bounds[8]) &&
+                        (P[pIdx + 4] + stepSize[pIdx + 4] < bounds[9]))
+                    {
+                        P[pIdx + 4] += stepSize[pIdx + 4]; // take one step.
+                        // update sigma and angle dependency.
+                        ThetaA = Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+                        ThetaB = -Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 3] * P[pIdx + 3]) +
+                                Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 4] * P[pIdx + 4]);
+                        ThetaC = Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+                        tempRsquare = 0; // reset.
+                        for (xyIndex = 0; xyIndex < windowWidth * windowWidth; xyIndex++)
+                        {
+                            xi = xyIndex % windowWidth;
+                            yi = xyIndex / windowWidth;
+                            residual = P[pIdx + 0] * Math.Exp(-(ThetaA * (xi - P[pIdx + 1]) * (xi - P[pIdx + 1]) -
+                                    2 * ThetaB * (xi - P[pIdx + 1]) * (yi - P[pIdx + 2]) +
+                                    ThetaC * (yi - P[pIdx + 2]) * (yi - P[pIdx + 2])
+                                    )) + P[pIdx + 6] - gaussVector[gIdx + xyIndex];
+
+                            tempRsquare += residual * residual;
+                        }
+                        tempRsquare = (tempRsquare / totalSumOfSquares);  // normalize.
+                        if (tempRsquare < Rsquare)                // If improved, update variables.
+                        {
+                            Rsquare = tempRsquare;
+                        }
+                        else
+                        {
+                            P[pIdx + 4] -= stepSize[pIdx + 4]; // reset.
+                            ThetaA = Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                    Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+                            ThetaB = -Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 3] * P[pIdx + 3]) +
+                                    Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 4] * P[pIdx + 4]);
+                            ThetaC = Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                    Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+                            if (stepSize[pIdx + 4] < 0)
+                                //stepSize[pIdx + 4] *= -0.6667;   // Decrease stepsize and switch direction.
+                            {
+                                if (loopcounter > 3)
+                                    stepSize[pIdx + 4] *= -0.6667;   // Decrease stepsize and switch direction.
+                                else
+                                    stepSize[pIdx + 4] *= -0.75;
+                            }
+                            else
+                                stepSize[pIdx + 4] *= -1;         // switch direction.
+                        }
+                    }
+                    else // bounds check 
+                    {
+                        if (stepSize[pIdx + 4] < 0)
+                            //stepSize[pIdx + 4] *= -0.6667;   // Decrease stepsize and switch direction.
+                        {
+                            if (loopcounter > 3)
+                                stepSize[pIdx + 4] *= -0.6667;   // Decrease stepsize and switch direction.
+                            else
+                                stepSize[pIdx + 4] *= -0.7;
+                        }
+                        else
+                            stepSize[pIdx + 4] *= -1;         // switch direction.
+                    }
+
+                    // theta                       
+                    if ((P[pIdx + 5] + stepSize[pIdx + 5] > bounds[10]) &&
+                        (P[pIdx + 5] + stepSize[pIdx + 5] < bounds[11]))
+                    {
+                        P[pIdx + 5] += stepSize[pIdx + 5]; // take one step.
+                        // update sigma and angle dependency.
+                        ThetaA = Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+                        ThetaB = -Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 3] * P[pIdx + 3]) +
+                                Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 4] * P[pIdx + 4]);
+                        ThetaC = Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+                        tempRsquare = 0; // reset.
+                        for (xyIndex = 0; xyIndex < windowWidth * windowWidth; xyIndex++)
+                        {
+                            xi = xyIndex % windowWidth;
+                            yi = xyIndex / windowWidth;
+                            residual = P[pIdx + 0] * Math.Exp(-(ThetaA * (xi - P[pIdx + 1]) * (xi - P[pIdx + 1]) -
+                                    2 * ThetaB * (xi - P[pIdx + 1]) * (yi - P[pIdx + 2]) +
+                                    ThetaC * (yi - P[pIdx + 2]) * (yi - P[pIdx + 2])
+                                    )) + P[pIdx + 6] - gaussVector[gIdx + xyIndex];
+
+                            tempRsquare += residual * residual;
+                        }
+                        tempRsquare = (tempRsquare / totalSumOfSquares);  // normalize.
+                        if (tempRsquare < Rsquare)                // If improved, update variables.
+                        {
+                            Rsquare = tempRsquare;
+                        }
+                        else
+                        {
+                            P[pIdx + 5] -= stepSize[pIdx + 5]; // reset.
+
+                            ThetaA = Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+                            ThetaB = -Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 3] * P[pIdx + 3]) +
+                                    Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 4] * P[pIdx + 4]);
+                            ThetaC = Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                    Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+                            if (stepSize[pIdx + 5] < 0)
+                       //         stepSize[pIdx + 5] *= -0.667;   // Decrease stepsize and switch direction.
+                            {
+                                if (loopcounter > 3)
+                                    stepSize[pIdx + 5] *= -0.6667;   // Decrease stepsize and switch direction.
+                                else
+                                    stepSize[pIdx + 5] *= -0.75;
+                            }
+                            else
+                                stepSize[pIdx + 5] *= -1;         // switch direction.
+                        }
+                    }
+                    else // bounds check 
+                    {
+                        if (stepSize[pIdx + 5] < 0)
+                           // stepSize[pIdx + 5] *= -0.667;   // Decrease stepsize and switch direction.
+                        {
+                            if (loopcounter > 3)
+                                stepSize[pIdx + 5] *= -0.6667;   // Decrease stepsize and switch direction.
+                            else
+                                stepSize[pIdx + 5] *= -0.75;
+                        }
+                        else
+                            stepSize[pIdx + 5] *= -1;         // switch direction.
+                    }
+
+
+                    // offset          
+                    if (P[pIdx+6] + stepSize[pIdx+6] > P[pIdx] * bounds[12] &&
+                        P[pIdx+6] + stepSize[pIdx+6] < P[pIdx] * bounds[13])
+                    {
+                        P[pIdx+6] += stepSize[pIdx+6]; // take one step.
+
+                        tempRsquare = 0; // reset.
+                        for (xyIndex = 0; xyIndex < windowWidth * windowWidth; xyIndex++)
+                        {
+                            xi = xyIndex % windowWidth;
+                            yi = xyIndex / windowWidth;
+                            residual = P[pIdx + 0] * Math.Exp(-(ThetaA * (xi - P[pIdx + 1]) * (xi - P[pIdx + 1]) -
+                                    2 * ThetaB * (xi - P[pIdx + 1]) * (yi - P[pIdx + 2]) +
+                                    ThetaC * (yi - P[pIdx + 2]) * (yi - P[pIdx + 2])
+                                    )) + P[pIdx + 6] - gaussVector[gIdx + xyIndex];
+
+                            tempRsquare += residual * residual;
+                        }
+                        tempRsquare = (tempRsquare / totalSumOfSquares);  // normalize.
+                        if (tempRsquare < Rsquare)                // If improved, update variables.
+                        {
+                            Rsquare = tempRsquare;
+                        }
+                        else
+                        {
+                            P[pIdx + 6] -= stepSize[pIdx + 6]; // reset.
+                            if (stepSize[pIdx+6] < 0)
+                            {
+                                if (loopcounter > 3)
+                                    stepSize[pIdx+6] *= -0.8;   // Decrease stepsize and switch direction.
+                                else if (loopcounter > 6)
+                                    stepSize[pIdx+6] *= -0.75;
+                                else
+                                    stepSize[pIdx + 6] *= -0.7;
+                            }
+                            else
+                                stepSize[pIdx+6] *= -1;         // switch direction.
+                        }
+                    }
+                    else // bounds check 
+                    {
+                        if (stepSize[pIdx+6] < 0)
+                        {
+                            if (loopcounter > 3)
+                                stepSize[pIdx + 6] *= -0.8;   // Decrease stepsize and switch direction.
+                            else if (loopcounter > 6)
+                                stepSize[pIdx + 6] *= -0.75;
+                            else
+                                stepSize[pIdx + 6] *= -0.7;
+                        }
+                        else
+                            stepSize[pIdx+6] *= -1;         // switch direction.
+                    }
+
+
+
+
+                  //  pId++;
+                    loopcounter++;
+
+                    //if (pId > 6)
+                   // {
+                        if (loopcounter > 5)
+                        {
+                            if ((oldRsquare - Rsquare) < convCriteria)
+                            {
+                                optimize = false;
+                            }
+                        }
+                     //   pId = 0;
+                   // }
+                    if (loopcounter > maxIterations) // exit.
+                        optimize = false;
+                }// optimize while loop
+
+                ///////////////////////////////////////////////////////////////////
+                ///////////////////////// Final output: ///////////////////////////
+                ///////////////////////////////////////////////////////////////////
+                ThetaA = Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                    Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+                ThetaB = -Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 3] * P[pIdx + 3]) +
+                                    Math.Sin(2 * P[pIdx + 5]) / (4 * P[pIdx + 4] * P[pIdx + 4]);
+                ThetaC = Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
+                                    Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
+                tempRsquare = 0; // reset.
+                for (xyIndex = 0; xyIndex < windowWidth * windowWidth; xyIndex++)
+                {
+                    xi = xyIndex % windowWidth;
+                    yi = xyIndex / windowWidth;
+                    residual = P[pIdx + 0] * Math.Exp(-(ThetaA * (xi - P[pIdx + 1]) * (xi - P[pIdx + 1]) -
+                            2 * ThetaB * (xi - P[pIdx + 1]) * (yi - P[pIdx + 2]) +
+                            ThetaC * (yi - P[pIdx + 2]) * (yi - P[pIdx + 2])
+                            )) + P[pIdx + 6];
+                    photons += residual;
+                    residual -= gaussVector[gIdx + xyIndex];
+                    tempRsquare += residual * residual;
+                }
+                tempRsquare = (tempRsquare / totalSumOfSquares);  // normalize.
+                P[pIdx] = photons;          // set amplitude to photon count.
+                P[pIdx + 6] = 1 - tempRsquare;  // set offset to r^2;      
+                //    for (int i = 0; i < 7; i++ )
+                //       P[pIdx+ i] = stepSize[pIdx + i];
+
+            } //idx check.
+
+        } // gaussFitterAdaptive2.
 
         [Cudafy]
         /*

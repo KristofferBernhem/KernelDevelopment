@@ -87,7 +87,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="driftCorr.cs" />
+    <Compile Include="gaussFitShort.cs" />
     <Compile Include="gaussFit.cs" />
+    <Compile Include="medianFilteringShort.cs" />
     <Compile Include="medianFiltering.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
