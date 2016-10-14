@@ -13,11 +13,11 @@ namespace KernelDevelopment
         {
             //vectorAdd.Execute();
             //findMaxima.Execute();
-            medianFiltering.Execute(); // test median filtering.
+            //medianFiltering.Execute(); // test median filtering.
             //medianFilteringShort.Execute(); // test median filtering.
             //gaussFit.Execute();
             //gaussFitShort.Execute();
-            //driftCorr.Execute();
+            driftCorr.Execute();
             //TestGPU.Execute();
             // http://numerics.mathdotnet.com/Matrix.html for details:
 
