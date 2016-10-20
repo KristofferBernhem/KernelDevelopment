@@ -13,7 +13,8 @@ namespace KernelDevelopment
         {
             //vectorAdd.Execute();
             //findMaxima.Execute();
-            //medianFiltering.Execute(); // test median filtering.
+            //prepareGauss.Execute();
+           // medianFiltering.Execute(); // test median filtering.
             //medianFilteringShort.Execute(); // test median filtering.
             //gaussFit.Execute();
             //gaussFitShort.Execute();
