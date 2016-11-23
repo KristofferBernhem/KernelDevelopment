@@ -14,11 +14,12 @@ namespace KernelDevelopment
             //vectorAdd.Execute();
             //findMaxima.Execute();
             //prepareGauss.Execute();
-           // medianFiltering.Execute(); // test median filtering.
+            //medianFiltering.Execute(); // test median filtering.
+            medianFilteringInterpolate.Execute(); // test median filtering with interpolation.
             //medianFilteringShort.Execute(); // test median filtering.
             //gaussFit.Execute();
             //gaussFitShort.Execute();
-            driftCorr.Execute();
+            //driftCorr.Execute();
             //TestGPU.Execute();
             // http://numerics.mathdotnet.com/Matrix.html for details:
 

@@ -62,14 +62,14 @@ namespace KernelDevelopment
             // Collect results.
             int[] result = new int[N];
             gpu.CopyFromDevice(device_result, result);
-            gpu.Launch(new dim3(framewidth, frameheight), 1).medianKernelInterpolate(width, device_window, depth, device_data, device_meanVector, 3, device_result);
+            gpu.Launch(new dim3(framewidth, frameheight), 1).medianKernelInterpolate(width, device_window, depth, device_data, device_meanVector, 5, device_result);
 
             int[] result2 = new int[N];
             gpu.CopyFromDevice(device_result, result2);
-            for (int h = 80; h < 100; h++ )
+            for (int h = 0; h < 64*64*10; h += 64*64 )
             {
 //                Console.Out.WriteLine((result[h] - result2[h]));
-                Console.Out.WriteLine((result[h]));
+                Console.Out.WriteLine((result[h]) + " "  + result2[h]);
             }
                 //Profile:
                 watch.Stop();
@@ -232,7 +232,7 @@ namespace KernelDevelopment
                 {
                     // find oldest entry and replace with newest.
                     found           = false;           // Update success counter.
-                    searchCounter   = filterIndex; // starting index to search in filterWindow.
+                    searchCounter   = filterIndex;      // starting index to search in filterWindow.
                     while (!found && searchCounter < upperWindowBound+1)
                     {
                         if (filterWindow[searchCounter] == inputVector[inputIndex - windowWidth - 1]) // find entry in filterWindow matching oldest entry.
@@ -318,10 +318,33 @@ namespace KernelDevelopment
 
                 isOdd = false;  // full filter window is always odd number long (2W+1), we start by reducing index by 1.
 
-                int maxFilterIdx = index + windowWidth; // last index for current filterwindow.
-          
                 while (inputIndex < (idx + 1) * depth) // loop over remaining entries.
                 {      
+                    /*
+                     * Find entry from W+1 entries ago and move it to end of filterWindow vector.
+                     */
+
+                    found = false;
+                    searchCounter   = filterIndex;      // starting index to search in filterWindow.
+                    while (!found && searchCounter < upperWindowBound+1)
+                    {
+                        if (filterWindow[searchCounter] == inputVector[inputIndex - windowWidth - 1]) // find entry in filterWindow matching oldest entry.
+                        {
+                            if(searchCounter < upperWindowBound) // if the index points to the last element, do nothing, else do this:
+                            {
+                                while (searchCounter < upperWindowBound + 1)
+                                {
+                                    temp = filterWindow[searchCounter];
+                                    filterWindow[searchCounter] = filterWindow[searchCounter + 1];
+                                    filterWindow[searchCounter + 1] = temp;
+                                    searchCounter++;
+                                }
+                            } // check if searchCounter points to last entry.
+                        } // if we found the correct index.
+                        searchCounter++;
+                    } // main search loop.
+                    upperWindowBound--; // ignore more and more of the vector.
+
                     if (isOdd)
                     {
                         answer[answerIndex] = (int)(meanVector[zSlice] * (inputVector[inputIndex] - filterWindow[index])); // InputVector - meanvalueFrame*median.
@@ -335,7 +358,7 @@ namespace KernelDevelopment
                         if (answer[answerIndex] < 0)
                             answer[answerIndex] = 0;
                         isOdd               = true;
-                        index++;
+                        index--; // decrease number of used elements.
                     }
                     // Update counters:
                     zSlice++;       // index for meanVector.                    
@@ -347,24 +370,31 @@ namespace KernelDevelopment
             } // end main check of idx.
         } // End medianKernel.
 
+
         [Cudafy]
         /*
-         * Skipping nSteps for speedup. Accurate for steps up to 10.
-         */ 
-
+         * kernel takes median width, swapvector that is (2*window_width+1)*x_width*y_height, z_depth, vector with input data organized as:
+         *  x1y1z1, x1y1z2,...,x1y1zn, x2y1z1,...
+         *  mean value vector for each frame (z1, z2,...)
+         *  output vector of same size as input data vector.
+         *  This version skips nStep entries and interpolates results.
+         *  Output is: Input value - frameMean*median.
+         *
+         */
         public static void medianKernelInterpolate(GThread thread, int windowWidth, float[] filterWindow, int depth, float[] inputVector, float[] meanVector, int nStep, int[] answer)
         {
             int y = thread.blockIdx.y;
             int x = thread.blockIdx.x;
             int idx = x + (y * thread.gridDim.x);          // which pixel.  
-
             if (idx < inputVector.Length / depth)           // if pixel is included.
             {
                 int zSlice = 0;            // Used to keep track of zslice, used in generating final result values.
                 int inputIndex = idx * depth; // Where to start placing results.                
                 int filterIndex = idx * (2 * windowWidth + 1); // keep track of filter window insertion.
                 Boolean isOdd = true;            // Keep track of if current effective filter window is odd or even, for main portion this is always odd.
-                float temp;       // Swap variable for shifting filterWindow entries.
+                float temp;       // Swap variable for shifting filterWindow entries.                
+                double lastMedian = 0;
+                double interpolateStep = 0;
                 int answerIndex = idx; // where to put the calclated answer. Output in frame by frame.
                 // Start populating filterWindow with windowWidth first number of values from inputVector:
                 while (inputIndex < (idx + 1) * depth)
@@ -375,7 +405,7 @@ namespace KernelDevelopment
                 }
                 zSlice = 0; // reset.                
                 inputIndex = idx * depth; // reset.
-                for (int populateIDX = idx * depth; populateIDX < idx * depth + windowWidth + 1; populateIDX += nStep) // load ever nStep entry.
+                for (int populateIDX = idx * depth; populateIDX < idx * depth + (windowWidth + 1)*nStep; populateIDX += nStep) // increase by nStep size.
                 {
                     filterWindow[filterIndex] = inputVector[populateIDX];
                     filterIndex++;
@@ -403,6 +433,7 @@ namespace KernelDevelopment
                     answer[answerIndex] = (int)(meanVector[zSlice] * (inputVector[inputIndex] - filterWindow[index + (windowWidth) / 2])); // InputVector - meanvalueFrame*median.
                     if (answer[answerIndex] < 0)
                         answer[answerIndex] = 0;
+                    lastMedian = filterWindow[index + (windowWidth) / 2];
                     isOdd = false;
                 }
                 else
@@ -410,19 +441,20 @@ namespace KernelDevelopment
                     answer[answerIndex] = (int)(meanVector[zSlice] * (inputVector[inputIndex] - (filterWindow[index + (windowWidth - 1) / 2] + filterWindow[index + ((windowWidth - 1) / 2) + 1]) / 2.0)); // InputVector - meanvalueFrame*median.
                     if (answer[answerIndex] < 0)
                         answer[answerIndex] = 0;
+                    lastMedian = (filterWindow[index + (windowWidth - 1) / 2] + filterWindow[index + ((windowWidth - 1) / 2) + 1]) / 2.0;
                     isOdd = true;
                 }
 
                 // Update counters:
-                zSlice+=nStep; // index for meanVector.
+                zSlice += nStep; // index for meanVector.
                 if (isOdd)
                     index = idx * (2 * windowWidth + 1) + (windowWidth - 1) / 2 + 1;  // start index for filterWindow.
                 else
                     index = idx * (2 * windowWidth + 1) + windowWidth / 2 + 1;  // start index for filterWindow.
-                inputIndex+=nStep; // Index of entry to calculate median for.
-                answerIndex += (inputVector.Length / depth) * nStep; // next answer is nStep positions away.
-
-                for (int populateIndex = idx * depth + windowWidth + 1; populateIndex < idx * depth + 2 * windowWidth + 1; populateIndex+=nStep) // Add one element at a time until 2xwindowWidth+1 elements are in the list.
+                inputIndex += nStep; // Index of entry to calculate median for.
+                answerIndex += (inputVector.Length / depth)*nStep;
+                //answerIndex++;
+                for (int populateIndex = idx * depth + windowWidth + 1; populateIndex < idx * depth + (2 * windowWidth + 1)*nStep; populateIndex += nStep) // Add one element at a time until 2xwindowWidth+1 elements are in the list.
                 {
                     filterWindow[filterIndex] = inputVector[populateIndex];
                     // Bubblesort filterWindow, not pretty but easy to implement:
@@ -444,7 +476,21 @@ namespace KernelDevelopment
                         answer[answerIndex] = (int)(meanVector[zSlice] * (inputVector[inputIndex] - filterWindow[index])); // InputVector - meanvalueFrame*median.
                         if (answer[answerIndex] < 0)
                             answer[answerIndex] = 0;
+
+                        /*
+                         * INTERPOLATE
+                         */
+                        interpolateStep = (filterWindow[index] - lastMedian)/nStep; // stepsize.
+                        for (int i = 1; i < nStep; i++ )
+                        {
+                            answer[answerIndex - (inputVector.Length / depth) * nStep + (inputVector.Length / depth) * i] =
+                                (int)(meanVector[zSlice - nStep + i] * (inputVector[inputIndex - nStep + i] - (lastMedian+interpolateStep*i))); // InputVector - meanvalueFrame*median.
+                            if (answer[answerIndex - (inputVector.Length / depth) * nStep + (inputVector.Length / depth) * i] < 0)
+                                answer[answerIndex - (inputVector.Length / depth) * nStep + (inputVector.Length / depth) * i] = 0;
+                        }
                         isOdd = false;
+
+                        lastMedian = filterWindow[index]; // update.
                         index++;        // start index for filterWindow.
                     }
                     else
@@ -452,25 +498,27 @@ namespace KernelDevelopment
                         answer[answerIndex] = (int)(meanVector[zSlice] * (inputVector[inputIndex] - (filterWindow[index] + filterWindow[index - 1]) / 2.0)); // InputVector - meanvalueFrame*median.
                         if (answer[answerIndex] < 0)
                             answer[answerIndex] = 0;
+                        /*
+                         * INTERPOLATE
+                         */
+                        interpolateStep = (filterWindow[index] - lastMedian) / nStep; // stepsize.
+                        for (int i = 1; i < nStep; i++)
+                        {
+                            answer[answerIndex - (inputVector.Length / depth) * nStep + (inputVector.Length / depth) * i] =
+                                (int)(meanVector[zSlice - nStep + i] * (inputVector[inputIndex - nStep + i] - (lastMedian + interpolateStep * i))); // InputVector - meanvalueFrame*median.
+                            if (answer[answerIndex - (inputVector.Length / depth) * nStep + (inputVector.Length / depth) * i] < 0)
+                                answer[answerIndex - (inputVector.Length / depth) * nStep + (inputVector.Length / depth) * i] = 0;
+                        }
                         isOdd = true;
-                    }
-                    // Interpolate between current and previous point.
-                    float step = answer[answerIndex] - answer[answerIndex - (inputVector.Length / depth) * nStep];
-                    for (int idx2 = 1; idx2 < nStep; idx2++ )
-                    {
-                        answer[answerIndex + (inputVector.Length / depth) * (nStep + idx2)] = (int) (answer[answerIndex - (inputVector.Length / depth) * nStep] + idx2 * step);
+                        lastMedian = (filterWindow[index] + filterWindow[index + 1]) / 2.0; // update.
                     }
 
-                        // Update counters:
+                    // Update counters:
                     zSlice += nStep;       // index for meanVector.
-                    filterIndex += nStep;  // Insertion index for filterWindow.                    
+                    filterIndex++;  // Insertion index for filterWindow.                    
                     inputIndex += nStep; // Index of entry to calculate median for.
-                    answerIndex += (inputVector.Length / depth)*nStep;
-                    
-                    //answerIndex++;
-                }
-
-
+                    answerIndex += (inputVector.Length / depth) * nStep;
+                }                
                 // filterWindow now fully populated.
                 // find oldest entry and replace with newest. run through sorting algorithm on this entry and upwards.
                 // Loop through centre portion of input data, changing algorithm once end has been reached.                
@@ -561,28 +609,55 @@ namespace KernelDevelopment
                     answer[answerIndex] = (int)(meanVector[zSlice] * (inputVector[inputIndex] - filterWindow[index])); // InputVector - meanvalueFrame*median.
                     if (answer[answerIndex] < 0)
                         answer[answerIndex] = 0;
-                    // Interpolate between current and previous point.
-                    float step = answer[answerIndex] - answer[answerIndex - (inputVector.Length / depth) * nStep];
-                    for (int idx2 = 1; idx2 < nStep; idx2++)
+                    /*
+                     * INTERPOLATE
+                     */ 
+                    interpolateStep = (filterWindow[index] - lastMedian) / nStep; // stepsize.
+                    for (int i = 1; i < nStep; i++)
                     {
-                        answer[answerIndex + (inputVector.Length / depth) * (nStep + idx2)] = (int)(answer[answerIndex - (inputVector.Length / depth) * nStep] + idx2 * step);
+                        answer[answerIndex - (inputVector.Length / depth) * nStep + (inputVector.Length / depth) * i] =
+                            (int)(meanVector[zSlice - nStep + i] * (inputVector[inputIndex - nStep + i] - (lastMedian + interpolateStep * i))); // InputVector - meanvalueFrame*median.
+                        if (answer[answerIndex - (inputVector.Length / depth) * nStep + (inputVector.Length / depth) * i] < 0)
+                            answer[answerIndex - (inputVector.Length / depth) * nStep + (inputVector.Length / depth) * i] = 0;
                     }
-
+                    lastMedian = filterWindow[index]; // update.                    
                     // Update counters:
-                    zSlice += nStep;       // index for meanVector.
-                    filterIndex += nStep;  // Insertion index for filterWindow.                    
+                    zSlice += nStep;       // index for meanVector.                    
                     inputIndex += nStep; // Index of entry to calculate median for.
-                    answerIndex += (inputVector.Length / depth) * nStep;
-                    
-                    //answerIndex++;
+                    answerIndex += (inputVector.Length / depth) * nStep;                                        
                 }// main while loop.
 
                 isOdd = false;  // full filter window is always odd number long (2W+1), we start by reducing index by 1.
-
-                int maxFilterIdx = index + windowWidth; // last index for current filterwindow.
-
+                // SHOULD BE OK THUS FAR!
+          //      int maxFilterIdx = index + windowWidth; // last index for current filterwindow.
+               
                 while (inputIndex < (idx + 1) * depth) // loop over remaining entries.
                 {
+                    /*
+                     * Find entry from W+1 entries ago and move it to end of filterWindow vector.
+                     */
+
+                    found = false;
+                    searchCounter = filterIndex;      // starting index to search in filterWindow.
+                    while (!found && searchCounter < upperWindowBound + 1)
+                    {
+                        if (filterWindow[searchCounter] == inputVector[inputIndex - windowWidth - 1]) // find entry in filterWindow matching oldest entry.
+                        {
+                            if (searchCounter < upperWindowBound) // if the index points to the last element, do nothing, else do this:
+                            {
+                                while (searchCounter < upperWindowBound + 1)
+                                {
+                                    temp = filterWindow[searchCounter];
+                                    filterWindow[searchCounter] = filterWindow[searchCounter + 1];
+                                    filterWindow[searchCounter + 1] = temp;
+                                    searchCounter++;
+                                }
+                            } // check if searchCounter points to last entry.
+                        } // if we found the correct index.
+                        searchCounter++;
+                    } // main search loop.
+                    upperWindowBound--; // ignore more and more of the vector.
+
                     if (isOdd)
                     {
                         answer[answerIndex] = (int)(meanVector[zSlice] * (inputVector[inputIndex] - filterWindow[index])); // InputVector - meanvalueFrame*median.
@@ -596,51 +671,20 @@ namespace KernelDevelopment
                         if (answer[answerIndex] < 0)
                             answer[answerIndex] = 0;
                         isOdd = true;
-                        index++;
+                        index--; // decrease number of used elements.
                     }
-                    // Interpolate between current and previous point.
-                    float step = answer[answerIndex] - answer[answerIndex - (inputVector.Length / depth) * nStep];
-                    for (int idx2 = 1; idx2 < nStep; idx2++)
-                    {
-                        answer[answerIndex + (inputVector.Length / depth) * (nStep + idx2)] = (int)(answer[answerIndex - (inputVector.Length / depth) * nStep] + idx2 * step);
-                    }
-
                     // Update counters:
-                    zSlice += nStep;       // index for meanVector.
-                    filterIndex += nStep;  // Insertion index for filterWindow.                    
-                    inputIndex += nStep; // Index of entry to calculate median for.
-                    answerIndex += (inputVector.Length / depth) * nStep;
-                    
+                    zSlice++;       // index for meanVector.                    
+                    inputIndex++;  // Index of entry to calculate median for.                        
+                    answerIndex += inputVector.Length / depth;
                     //answerIndex++;
-                } // loop over remaining entries.
-                answerIndex -= 2*(inputVector.Length / depth) * nStep;
-                inputIndex -= nStep;
-                zSlice -= nStep;
-                
-                if (inputIndex != (idx + 1) * depth - 1) // if we did not include the very last entry.
-                {
-                    if (isOdd)
-                    {
-                        answer[idx + (depth - 1) * (inputVector.Length / depth)] = (int)(meanVector[zSlice] * (inputVector[inputIndex] - filterWindow[index])); // InputVector - meanvalueFrame*median.
-                        if (answer[((idx + 1) * depth)-1] < 0)
-                            answer[((idx + 1) * depth)-1] = 0;
-                    }
-                    else
-                    {
-                        answer[idx + (depth - 1) * (inputVector.Length / depth)] = (int)(meanVector[zSlice] * (inputVector[inputIndex] - (filterWindow[index] + filterWindow[index + 1]) / 2.0)); // InputVector - meanvalueFrame*median.
-                        if (answer[((idx + 1) * depth)-1] < 0)
-                            answer[((idx + 1) * depth)-1] = 0;
-                    }
-                    float step = answer[idx + (depth - 1) * (inputVector.Length / depth)] - answer[answerIndex];
-                    for (int idx2 = 1; idx2 < (idx + 1) * depth - 1 - inputIndex; idx2++) 
-                    {
-                        answer[answerIndex + (inputVector.Length / depth) * idx2] = (int)(answer[answerIndex] + idx2 * step);
-                    }
-                }
-                
-
+                } // loop over remaining entries.                               
             } // end main check of idx.
-        } // End medianKernel.
+        } // End medianKernelInterpolate.
+
+
+
+     
    
         public static float[] generateTest(int N) // generate test vector to simulate mean frame values.
         {

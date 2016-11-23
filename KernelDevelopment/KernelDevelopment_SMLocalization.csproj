@@ -88,6 +88,7 @@
   <ItemGroup>
     <Compile Include="driftCorr.cs" />
     <Compile Include="findMaxima.cs" />
+    <Compile Include="medianFilteringInterpolate.cs" />
     <Compile Include="prepareGauss.cs" />
     <Compile Include="vectorAdd.cs" />
     <Compile Include="gaussFitShort.cs" />
