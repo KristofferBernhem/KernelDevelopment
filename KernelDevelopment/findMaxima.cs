@@ -169,9 +169,22 @@ namespace KernelDevelopment
                          
                          if (include) // center pixel is the strongest.
                          {
-                             /*
+                             Center[idx * sizeCenter + added] = i;// add value.
+                             added++;
+                         }
+                     }
+                     i++;
+                     if (i % frameWidth == frameWidth - (windowWidth / 2))// if outside of ok range. skip to next row.
+                         i += windowWidth - 1;
+                 }
+             }
+        }
+        
+    }
+
+        /*
                               * check that no other centers are close 
-                              */
+                              
                              j = 0;
                              include = true;
                              while (j < added)
@@ -226,5 +239,5 @@ namespace KernelDevelopment
                  } // Center now populated.                                     
             } // idx check
         }      // CUDAFY .run
-    }
+    }*/
 }
