@@ -81,7 +81,7 @@ namespace KernelDevelopment
                 int[] deviceData = gpu.CopyToDevice(data);
                 int[] deviceCenter = gpu.Allocate<int>(N * sizeCenter); // 25 
                 
-                gpu.Launch(new dim3(N_squared, N_squared), 1).run(deviceData, fW, fH, gWindow, minLvl, sqDistance, minPosPixel, sizeCenter, deviceCenter);
+                gpu.Launch(new dim3(N_squared, N_squared), 1).run(deviceData, fW, fH, gWindow, minLvl, minPosPixel, sizeCenter, deviceCenter);
                 int[] center = new int[N * sizeCenter];
                 //Console.Out.WriteLine("data: " + data.Length + " center: " + center.Length);
                 gpu.CopyFromDevice(deviceCenter, center);
@@ -121,7 +121,7 @@ namespace KernelDevelopment
      */ 
         [Cudafy]
 
-        public static void run(GThread thread, int[] data, int frameWidth, int frameHeight, int windowWidth, int minLevel, double sqDistance, int minPosPixel, int sizeCenter, int[] Center)
+        public static void run(GThread thread, int[] data, int frameWidth, int frameHeight, int windowWidth, int minLevel, int minPosPixel, int sizeCenter, int[] Center)
         {
              int idx = thread.blockIdx.x + thread.gridDim.x * thread.blockIdx.y;
            

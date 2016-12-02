@@ -11,15 +11,24 @@ namespace KernelDevelopment
     {
         static void Main(string[] args)
         {
-            //vectorAdd.Execute();
+            //medianFilteringInterpolateSecond.Execute();   // IN USE!
             findMaxima.Execute();
+            //gaussFit.Execute();
+            //driftCorr.Execute();
+
+
+
+
+
+            //vectorAdd.Execute();
             //prepareGauss.Execute();
            // medianFiltering.Execute(); // test median filtering.
             //medianFilteringInterpolate.Execute(); // test median filtering with interpolation.
+            
             //medianFilteringShort.Execute(); // test median filtering.
-            //gaussFit.Execute();
+            
             //gaussFitShort.Execute();
-            //driftCorr.Execute();
+            
             //TestGPU.Execute();
             // http://numerics.mathdotnet.com/Matrix.html for details:
 
