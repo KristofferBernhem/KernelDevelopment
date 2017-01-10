@@ -37,7 +37,7 @@ namespace KernelDevelopment
             double[] timers= { 0, 0, 0, 0, 0 , 0};
             int count = 0;
 //            int[] Ntests = { 100, 1000, 5000, 10000, 20000 };
-            int[] Ntests = {100};
+            int[] Ntests = {10000};
             for (int i = 0; i < Ntests.Length; i++)
             {
                 int N = Ntests[i]; // number of gaussians to fit.
@@ -52,8 +52,8 @@ namespace KernelDevelopment
                               0.6,  1.4,         // amplitude, should be close to center pixel value. Add +/-20 % of center pixel, not critical for performance.
                               1,  windowWidth-1,        // x coordinate. Center has to be around the center pixel if gaussian distributed.
                               1,  windowWidth-1,        // y coordinate. Center has to be around the center pixel if gaussian distributed.
-                              0.7,  windowWidth/2.0,        // sigma x. Based on window size.
-                              0.7,  windowWidth/2.0,        // sigma y. Based on window size.
+                              0.8,  2.0,        // sigma x. Based on window size.
+                              0.8,  2.0,        // sigma y. Based on window size.
                               -1.57, 1.57,        // Theta. 0.785 = pi/4. Any larger and the same result can be gained by swapping sigma x and y, symetry yields only positive theta relevant.
                               -0.5, 0.5};        // offset, best estimate, not critical for performance.
                 
@@ -70,8 +70,8 @@ namespace KernelDevelopment
                 singleParameter[0] = 6712; // amplitude.
                 singleParameter[1] = 2.5;   // x0.
                 singleParameter[2] = 2.5;   // y0.
-                singleParameter[3] = 1.5;   // sigma x.
-                singleParameter[4] = 1.5;   // sigma y.
+                singleParameter[3] = 1.0;   // sigma x.
+                singleParameter[4] = 1.0;   // sigma y.
                 singleParameter[5] = 0.0;   // Theta.
                 singleParameter[6] = 0;     // offset. 
                 double[] parameterVector = generateParameters(singleParameter, N);
@@ -184,7 +184,8 @@ namespace KernelDevelopment
                 stepSize[pIdx + 6] *= P[pIdx];
                 double sigmX = bounds[6];
                 double sigmY = bounds[8];
-                while (sigmX <= bounds[7])
+
+                while(sigmX <= bounds[7])
                 {
                     ThetaA = 1 / (2 * sigmX * sigmX);
                     while(sigmY <= bounds[9])
@@ -195,29 +196,24 @@ namespace KernelDevelopment
                         {
                             xi = (xyIndex % windowWidth);
                             yi = (xyIndex / windowWidth);
-                            residual = (P[pIdx + 0] * Math.Exp(-(ThetaA * (xi - P[pIdx + 1]) * (xi - P[pIdx + 1]) -
-                                    2 * ThetaB * (xi - P[pIdx + 1]) * (yi - P[pIdx + 2]) +
-                                    ThetaC * (yi - P[pIdx + 2]) * (yi - P[pIdx + 2])
-                                    ))) - gaussVector[gIdx + xyIndex];
+                            residual = (P[pIdx + 0] * Math.Exp(-(ThetaA * (xi - P[pIdx + 1]) * (xi - P[pIdx + 1]) +
+                                        ThetaC * (yi - P[pIdx + 2]) * (yi - P[pIdx + 2])
+                                        ))) - gaussVector[gIdx + xyIndex];
                             tempRsquare += residual * residual;
-                        }
+                        } 
                         tempRsquare = tempRsquare / totalSumOfSquares;
                         if (tempRsquare < Rsquare)
                         {
                             Rsquare = tempRsquare;
-                            ampLowBound = sigmX;
-                            ampHighBound = sigmY;
+                            P[pIdx + 3] = sigmX;
+                            P[pIdx + 4] = sigmY;
                         }
-                        sigmY += stepSize[4];
+                        sigmY += stepSize[pIdx + 4];
                     }
-                    sigmX += stepSize[3];
-                    sigmY = bounds[8]; // reset each loop.
+                    sigmX += stepSize[pIdx + 3];
+                    sigmY = bounds[8];
                 }
-            
-                P[pIdx + 3] = ampLowBound;
-                P[pIdx + 4] = ampHighBound;
-                ampLowBound = P[pIdx] * bounds[0];
-                ampHighBound = P[pIdx] * bounds[1];
+                           
                 Rsquare = 1;   
 
 
