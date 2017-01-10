@@ -182,10 +182,12 @@ namespace KernelDevelopment
                 double offHighBound = P[pIdx] * bounds[13];  // offset bounds are in fraction of center pixel value.
                 stepSize[pIdx] *= P[pIdx];
                 stepSize[pIdx + 6] *= P[pIdx];
-                for (double sigmX = P[pIdx + 3] - 3 * stepSize[pIdx + 3]; sigmX <= P[pIdx + 3] + 2 * stepSize[pIdx + 3]; sigmX += stepSize[pIdx + 3])
+                double sigmX = bounds[6];
+                double sigmY = bounds[8];
+                while (sigmX <= bounds[7])
                 {
                     ThetaA = 1 / (2 * sigmX * sigmX);
-                    for (double sigmY = P[pIdx + 4] - 3 * stepSize[pIdx + 4]; sigmY <= P[pIdx + 4] + 2 * stepSize[pIdx + 4]; sigmY += stepSize[pIdx + 4])
+                    while(sigmY <= bounds[9])
                     {
                         ThetaC = 1 / (2 * sigmY * sigmY);
                         tempRsquare = 0;
@@ -206,9 +208,12 @@ namespace KernelDevelopment
                             ampLowBound = sigmX;
                             ampHighBound = sigmY;
                         }
-
+                        sigmY += stepSize[4];
                     }
+                    sigmX += stepSize[3];
+                    sigmY = bounds[8]; // reset each loop.
                 }
+            
                 P[pIdx + 3] = ampLowBound;
                 P[pIdx + 4] = ampHighBound;
                 ampLowBound = P[pIdx] * bounds[0];

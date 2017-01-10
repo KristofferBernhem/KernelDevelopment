@@ -12,8 +12,8 @@ namespace KernelDevelopment
         static void Main(string[] args)
         {
             //medianFilteringInterpolateSecond.Execute();   // IN USE!
-            findMaxima.Execute();
-            //gaussFit.Execute();
+            //findMaxima.Execute();
+            gaussFit.Execute();
             //driftCorr.Execute();
 
 
