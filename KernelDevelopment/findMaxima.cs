@@ -133,6 +133,36 @@ namespace KernelDevelopment
                  Boolean include = true;
                  int i = (idx * (frameWidth * frameHeight) + (windowWidth / 2) * frameWidth + windowWidth / 2); // start windowWidth / 2 pixels in and windowWidth / 2 down.
                  j = idx*sizeCenter;
+                 if (minLevel == 0) // check if we should find this value.
+                 {
+                     double mean = 0;
+                     double std = 0;
+                     int count = 0;
+                     while (i < (idx + 1) * (frameWidth * frameHeight))
+                     {
+                         mean += data[i];
+                         if (data[i] > 0)
+                             count++;
+                         i++;
+                     }
+                     if (count > 0)
+                     {
+                         mean /= count;
+                         i = (idx * (frameWidth * frameHeight) + (windowWidth / 2) * frameWidth + windowWidth / 2); // start windowWidth / 2 pixels in and windowWidth / 2 down.
+                         while (i < (idx + 1) * (frameWidth * frameHeight))
+                         {
+                             std += (data[i] - mean) * (data[i] - mean);
+                             i++;
+                         }
+                         std /= count;
+                         std = Math.Sqrt(std);
+                         minLevel = (int)(mean + 0.7 * std);
+                     }
+                     else
+                         minLevel = 1000;
+                     
+                 }
+                 i = (idx * (frameWidth * frameHeight) + (windowWidth / 2) * frameWidth + windowWidth / 2); // start windowWidth / 2 pixels in and windowWidth / 2 down.
                  while (j < (idx + 1) * sizeCenter)
                  { 
                      Center[j] = 0;
