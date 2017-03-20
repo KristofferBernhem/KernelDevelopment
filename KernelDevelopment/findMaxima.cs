@@ -131,7 +131,7 @@ namespace KernelDevelopment
                  int j = 0;
                  int k = 0;
                  Boolean include = true;
-                 int i = (idx * (frameWidth * frameHeight) + (windowWidth / 2) * frameWidth + windowWidth / 2); // start windowWidth / 2 pixels in and windowWidth / 2 down.
+                 int i = (idx * (frameWidth * frameHeight));// + (windowWidth / 2) * frameWidth + windowWidth / 2); // start windowWidth / 2 pixels in and windowWidth / 2 down.
                  j = idx*sizeCenter;
                  if (minLevel == 0) // check if we should find this value.
                  {
@@ -148,7 +148,7 @@ namespace KernelDevelopment
                      if (count > 0)
                      {
                          mean /= count;
-                         i = (idx * (frameWidth * frameHeight) + (windowWidth / 2) * frameWidth + windowWidth / 2); // start windowWidth / 2 pixels in and windowWidth / 2 down.
+                         i = (idx * (frameWidth * frameHeight) ); // start windowWidth / 2 pixels in and windowWidth / 2 down.
                          while (i < (idx + 1) * (frameWidth * frameHeight))
                          {
                              std += (data[i] - mean) * (data[i] - mean);
@@ -159,7 +159,7 @@ namespace KernelDevelopment
                          minLevel = (int)(mean + 2.0 * std);
                      }
                      else
-                         minLevel = 1000;
+                         minLevel = 64000;
                      
                  }
                  i = (idx * (frameWidth * frameHeight) + (windowWidth / 2) * frameWidth + windowWidth / 2); // start windowWidth / 2 pixels in and windowWidth / 2 down.
@@ -204,7 +204,7 @@ namespace KernelDevelopment
                          }
                      }
                      i++;
-                     if (i % frameWidth == frameWidth - (windowWidth / 2))// if outside of ok range. skip to next row.
+                     if (i % frameWidth == (frameWidth - (windowWidth / 2)))// if outside of ok range. skip to next row.
                          i += windowWidth - 1;
                  }
              }
