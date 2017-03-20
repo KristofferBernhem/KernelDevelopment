@@ -156,7 +156,7 @@ namespace KernelDevelopment
                          }
                          std /= count;
                          std = Math.Sqrt(std);
-                         minLevel = (int)(mean + 0.7 * std);
+                         minLevel = (int)(mean + 2.0 * std);
                      }
                      else
                          minLevel = 1000;
