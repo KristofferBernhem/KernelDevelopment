@@ -50,7 +50,7 @@ namespace KernelDevelopment
                                                           
                 int fH = 64;
                 int fW = 64;
-                int minLvl = 15000;
+                
                 int gWindow = 5;
                 double sqDistance = 1;
                 int minPosPixel = 10;
@@ -76,12 +76,14 @@ namespace KernelDevelopment
                     if (k == data3.Length)
                         k = 0;
                 }
-                
+                int[] minLvl = new int[N];
+                for (int j = 0; j < N; j++)
+                    minLvl[j] = 15000;
                 int sizeCenter = 5;
                 int[] deviceData = gpu.CopyToDevice(data);
                 int[] deviceCenter = gpu.Allocate<int>(N * sizeCenter); // 25 
-                
-                gpu.Launch(new dim3(N_squared, N_squared), 1).run(deviceData, fW, fH, gWindow, minLvl, minPosPixel, sizeCenter, deviceCenter);
+                int[] deviceMinLvl = gpu.CopyToDevice(minLvl);
+                gpu.Launch(new dim3(N_squared, N_squared), 1).run(deviceData, fW, fH, gWindow, deviceMinLvl, minPosPixel, sizeCenter, deviceCenter);
                 int[] center = new int[N * sizeCenter];
                 //Console.Out.WriteLine("data: " + data.Length + " center: " + center.Length);
                 gpu.CopyFromDevice(deviceCenter, center);
@@ -121,7 +123,7 @@ namespace KernelDevelopment
      */ 
         [Cudafy]
 
-        public static void run(GThread thread, int[] data, int frameWidth, int frameHeight, int windowWidth, int minLevel, int minPosPixel, int sizeCenter, int[] Center)
+        public static void run(GThread thread, int[] data, int frameWidth, int frameHeight, int windowWidth, int[] minLevel, int minPosPixel, int sizeCenter, int[] Center)
         {
              int idx = thread.blockIdx.x + thread.gridDim.x * thread.blockIdx.y;
            
@@ -133,7 +135,7 @@ namespace KernelDevelopment
                  Boolean include = true;
                  int i = (idx * (frameWidth * frameHeight));// + (windowWidth / 2) * frameWidth + windowWidth / 2); // start windowWidth / 2 pixels in and windowWidth / 2 down.
                  j = idx*sizeCenter;
-                 if (minLevel == 0) // check if we should find this value.
+                 if (minLevel[idx] == 0) // check if we should find this value.
                  {
                      double mean = 0;
                      double std = 0;
@@ -156,10 +158,10 @@ namespace KernelDevelopment
                          }
                          std /= count;
                          std = Math.Sqrt(std);
-                         minLevel = (int)(mean + 2.0 * std);
+                         minLevel[idx] = (int)(mean + 2.0 * std);
                      }
                      else
-                         minLevel = 64000;
+                         minLevel[idx] = 64000;
                      
                  }
                  i = (idx * (frameWidth * frameHeight) + (windowWidth / 2) * frameWidth + windowWidth / 2); // start windowWidth / 2 pixels in and windowWidth / 2 down.
@@ -172,7 +174,7 @@ namespace KernelDevelopment
                  int loopC = 0;
                  while (i < (idx + 1) * (frameWidth * frameHeight) - (windowWidth / 2) * frameWidth) // loop over all but perifery pixels.
                  {
-                     if (data[i] > minLevel) // if center pixel is strong enough.
+                     if (data[i] > minLevel[idx]) // if center pixel is strong enough.
                      {
                          j = 0; // number of positive pixels.
                          // check surrounding area:
@@ -211,63 +213,4 @@ namespace KernelDevelopment
         }
         
     }
-
-        /*
-                              * check that no other centers are close 
-                              
-                             j = 0;
-                             include = true;
-                             while (j < added)
-                             {
-                                 if (((Center[idx * sizeCenter + j] % frameWidth) - (i % frameWidth)) * 
-                                     ((Center[idx * sizeCenter + j] % frameWidth) - (i % frameWidth)) // x square distance
-                                     + (((Center[idx * sizeCenter + j] / frameWidth) % frameHeight) - ((i / frameWidth) % frameHeight)) * 
-                                     (((Center[idx * sizeCenter + j] / frameWidth) % frameHeight) - ((i / frameWidth) % frameHeight)) < // y square distance.
-                                     sqDistance)
-                                 {
-                                     Center[idx * sizeCenter + j] = 0; // if distance was smaller then allowed, set entry to 0.
-                                     include = false;                                     
-                                 }
-                                 j++;
-                             }
-                             if (include)
-                             {
-                                 Center[idx * sizeCenter + added] = i;// add value.
-                                 added++;
-                             }
-                             else// if we removed one or more entires, move list up and update added variable.                              
-                             {                                 
-                                 j = (idx * sizeCenter);
-                                 loopC = added; // use loopC as temp variable so that "added" can be updated in the loop.
-                                 while (j < idx * sizeCenter + loopC)
-                                 {
-                                     include = true;
-                                     if (Center[j] == 0)
-                                     {
-                                         k = j + 1; 
-                                         while (k < idx * sizeCenter + added && include)
-                                         {
-                                             if (Center[k] > 0)
-                                             {
-                                                 Center[j] = Center[k];
-                                                 Center[k] = 0;
-                                                 include = false;
-                                                 added--;
-                                             }
-                                             k++;
-                                         } // while k is within bounds.
-                                     } // if center[j] == 0;
-                                     j++;
-                                 } // while j is within bounds. 
-                             } // if !include.                          
-                         } // if !posPixel.                        
-                     } // if data[i] > minLevel.
-                      
-                     i++;
-                     if (i % frameWidth == frameWidth - (windowWidth / 2))// if outside of ok range. skip to next row.
-                         i += windowWidth -1;
-                 } // Center now populated.                                     
-            } // idx check
-        }      // CUDAFY .run
-    }*/
 }

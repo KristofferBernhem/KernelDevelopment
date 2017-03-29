@@ -257,7 +257,10 @@ namespace KernelDevelopment
                             {
                                 P[pIdx + pId] -= stepSize[pIdx + pId]; // reset.
                                 if (stepSize[pIdx + pId] < 0)
-                                    stepSize[pIdx + pId] *= -0.6667;   // Decrease stepsize and switch direction.
+                                    if (loopcounter < 20)
+                                        stepSize[pIdx + pId] *= -0.3;   // Decrease stepsize and switch direction.
+                                    else
+                                        stepSize[pIdx + pId] *= -0.7;   // Decrease stepsize and switch direction.
                                 else
                                     stepSize[pIdx + pId] *= -1;         // switch direction.
                             }
@@ -265,7 +268,10 @@ namespace KernelDevelopment
                         else // bounds check 
                         {
                             if (stepSize[pIdx + pId] < 0)
-                                stepSize[pIdx + pId] *= -0.6667;   // Decrease stepsize and switch direction.
+                                if (loopcounter < 20)
+                                    stepSize[pIdx + pId] *= -0.3;   // Decrease stepsize and switch direction.
+                                else
+                                    stepSize[pIdx + pId] *= -0.7;   // Decrease stepsize and switch direction.
                             else
                                 stepSize[pIdx + pId] *= -1;         // switch direction.
                         }
@@ -299,7 +305,10 @@ namespace KernelDevelopment
                             {
                                 P[pIdx + pId] -= stepSize[pIdx + pId]; // reset.
                                 if (stepSize[pIdx + pId] < 0)
-                                    stepSize[pIdx + pId] *= -0.6667;   // Decrease stepsize and switch direction.
+                                    if (loopcounter < 20)
+                                        stepSize[pIdx + pId] *= -0.3;   // Decrease stepsize and switch direction.
+                                    else
+                                        stepSize[pIdx + pId] *= -0.7;   // Decrease stepsize and switch direction.
                                 else
                                     stepSize[pIdx + pId] *= -1;         // switch direction.
                             }
@@ -307,7 +316,10 @@ namespace KernelDevelopment
                         else // bounds check 
                         {
                             if (stepSize[pIdx + pId] < 0)
-                                stepSize[pIdx + pId] *= -0.6667;   // Decrease stepsize and switch direction.
+                                if (loopcounter < 20)
+                                    stepSize[pIdx + pId] *= -0.3;   // Decrease stepsize and switch direction.
+                                else
+                                    stepSize[pIdx + pId] *= -0.7;   // Decrease stepsize and switch direction.
                             else
                                 stepSize[pIdx + pId] *= -1;         // switch direction.
                         }
@@ -353,14 +365,20 @@ namespace KernelDevelopment
                                 ThetaC = Math.Sin(P[pIdx + 5]) * Math.Sin(P[pIdx + 5]) / (2 * P[pIdx + 3] * P[pIdx + 3]) +
                                         Math.Cos(P[pIdx + 5]) * Math.Cos(P[pIdx + 5]) / (2 * P[pIdx + 4] * P[pIdx + 4]);
                                 if (stepSize[pIdx + pId] < 0)
-                                    stepSize[pIdx + pId] *= -0.6667;   // Decrease stepsize and switch direction.
+                                    if (loopcounter < 20)
+                                        stepSize[pIdx + pId] *= -0.3;   // Decrease stepsize and switch direction.
+                                    else
+                                        stepSize[pIdx + pId] *= -0.7;   // Decrease stepsize and switch direction.
                                 else
                                     stepSize[pIdx + pId] *= -1;         // switch direction.
                             }
                         } else // bounds check 
                         {
                             if (stepSize[pIdx + pId] < 0)
-                                stepSize[pIdx + pId] *= -0.6667;   // Decrease stepsize and switch direction.
+                                if (loopcounter < 20)
+                                    stepSize[pIdx + pId] *= -0.3;   // Decrease stepsize and switch direction.
+                                else
+                                    stepSize[pIdx + pId] *= -0.7;   // Decrease stepsize and switch direction.
                             else
                                 stepSize[pIdx + pId] *= -1;         // switch direction.
                         }
@@ -371,7 +389,7 @@ namespace KernelDevelopment
 
                     if (pId > 6)
                     {
-                        if (loopcounter > 50)
+                        if (loopcounter > 250)
                         {
                             if ((oldRsquare - Rsquare) < convCriteria)
                             {

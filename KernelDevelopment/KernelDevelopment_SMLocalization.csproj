@@ -88,6 +88,7 @@
   <ItemGroup>
     <Compile Include="driftCorrOld.cs" />
     <Compile Include="driftCorr.cs" />
+    <Compile Include="filterImage.cs" />
     <Compile Include="findMaxima.cs" />
     <Compile Include="medianFilteringInterpolateSecond.cs" />
     <Compile Include="medianFilteringInterpolate.cs" />

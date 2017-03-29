@@ -627,8 +627,7 @@ namespace KernelDevelopment
                     answerIndex += (inputVector.Length / depth) * nStep;                                        
                 }// main while loop.
 
-                isOdd = false;  // full filter window is always odd number long (2W+1), we start by reducing index by 1.
-                // SHOULD BE OK THUS FAR!
+                isOdd = false;  // full filter window is always odd number long (2W+1), we start by reducing index by 1.                
           //      int maxFilterIdx = index + windowWidth; // last index for current filterwindow.
                
                 while (inputIndex < (idx + 1) * depth) // loop over remaining entries.
