@@ -225,8 +225,8 @@ namespace KernelDevelopment
                 high = windowWidth+1;
 
                 inpIdx = idx * depth;
-                answer[outIdx] = (int)(meanVector[zSlize] * (inputVector[inpIdx] - filterWindow[low + (high / 2)])); // first entry.
-                lastMedian = filterWindow[low + (high / 2)];
+                answer[outIdx] = (int)(meanVector[zSlize] * (inputVector[inpIdx] - filterWindow[low + (high / 2)-1])); // first entry.
+                lastMedian = filterWindow[low + (high / 2)-1];
                 if (answer[outIdx] < 0)
                     answer[outIdx] = 0;
 
@@ -256,13 +256,13 @@ namespace KernelDevelopment
                     } // done sorting in the new entry.
 
                     answer[outIdx] = (int)(meanVector[zSlize]*(inputVector[inpIdx]-
-                        (filterWindow[low +  + high / 2] +  
-                        (high%2)* filterWindow[low + high%2 + high / 2])/(1+(high%2))));
+                        (filterWindow[low +  + high / 2-1] +  
+                        (high%2)* filterWindow[low + high%2 + high / 2-1])/(1+(high%2))));
 
                     if (answer[outIdx] < 0)
                         answer[outIdx] = 0;
-                    interpolationStepSize = (filterWindow[low +  + high / 2] +  
-                        (high%2)* filterWindow[low + high%2 + high / 2])/(1+(high%2)) - 
+                    interpolationStepSize = (filterWindow[low +  + high / 2-1] +  
+                        (high%2)* filterWindow[low + high%2 + high / 2-1])/(1+(high%2)) - 
                         lastMedian; // current - last median value.
                     interpolationStepSize /= nStep;
                     for (int i = 1; i < nStep; i++ )
@@ -270,12 +270,12 @@ namespace KernelDevelopment
                         answer[outIdx - nStep*frameSize + i*frameSize] = 
                             (int) (meanVector[zSlize-nStep+i]*(
                             inputVector[inpIdx - nStep + i] -
-                            lastMedian - interpolationStepSize*i
+                            lastMedian + interpolationStepSize*i
                             ));
                         if (answer[outIdx - nStep * frameSize + i * frameSize] < 0)
                             answer[outIdx - nStep * frameSize + i * frameSize] = 0;
                     }
-                    lastMedian = (filterWindow[low + +high / 2] + 
+                    lastMedian = (filterWindow[low + high / 2] + 
                         (high % 2) * filterWindow[low + high % 2 + high / 2]) / (1 + (high % 2)); // median for this round, store for next.
 
 
@@ -294,7 +294,7 @@ namespace KernelDevelopment
                     swapped = false;
                     while (!swapped)
                     {
-                        if (inputVector[inpIdx - (windowWidth +1) * nStep] == filterWindow[j]) 
+                        if (inputVector[inpIdx - (windowWidth+1) * nStep] == filterWindow[j]) 
                         {
                             filterWindow[j] = inputVector[inpIdx+(windowWidth)*nStep]; // replace oldest entry with the next.
                             swapped = true;
@@ -360,11 +360,11 @@ namespace KernelDevelopment
                     // new entry now sorted, calculate median and interpolate:
                     
                     answer[outIdx] = (int)(meanVector[zSlize] * (inputVector[inpIdx] -
-                        (filterWindow[low + +high / 2] )));
+                        (filterWindow[low +high / 2] )));
                     if (answer[outIdx] < 0)
                         answer[outIdx] = 0;
 
-                    interpolationStepSize = filterWindow[low + +high / 2] -
+                    interpolationStepSize = filterWindow[low + high / 2] -
                         lastMedian; // current - last median value.
                     interpolationStepSize /= nStep;
                     for (int i = 1; i < nStep; i++)
@@ -372,12 +372,12 @@ namespace KernelDevelopment
                         answer[outIdx - nStep * frameSize + i * frameSize] =
                             (int)(meanVector[zSlize - nStep + i] * (
                             inputVector[inpIdx - nStep + i] -
-                            lastMedian - interpolationStepSize * i
+                            lastMedian + interpolationStepSize * i
                             ));
                         if (answer[outIdx - nStep * frameSize + i * frameSize] < 0)
                             answer[outIdx - nStep * frameSize + i * frameSize] = 0;
                     }
-                    lastMedian = filterWindow[low + +high / 2]; // median for this round, store for next.
+                    lastMedian = filterWindow[low + high / 2]; // median for this round, store for next.
                     
                     
           //          high++;
@@ -391,13 +391,12 @@ namespace KernelDevelopment
                 
                 high--;
                 while (inpIdx < (idx + 1) * depth)
-                {
-                    //  inputVector[inpIdx - (windowWidth + 1) * nStep]; // entry to be removed;
+                {                 
                     j = low;
                     swapped = false;
                     while (!swapped)
                     {
-                        if (inputVector[inpIdx - (windowWidth + 1) * nStep] == filterWindow[j]) 
+                        if (inputVector[inpIdx - (windowWidth-1) * nStep] == filterWindow[j]) 
                         {
                             while (j < low + high) // if this is not the last entry.
                             {
@@ -411,15 +410,15 @@ namespace KernelDevelopment
                         }
                         else
                             j++;
-                    } // entry replaced. Time to sort the new list.
+                    } // entry removed.
                     answer[outIdx] = (int)(meanVector[zSlize] * (inputVector[inpIdx] -
-                      (filterWindow[low + +high / 2] +
+                      (filterWindow[low + high / 2] +
                         (high % 2) * filterWindow[low + high % 2 + high / 2]) / (1 + (high % 2))));
                     if (answer[outIdx] < 0)
                         answer[outIdx] = 0;
 
-                    interpolationStepSize = (filterWindow[low + +high / 2] +
-                        (high % 2) * filterWindow[low + high % 2 + high / 2]) / (1 + (high % 2)) -
+                    interpolationStepSize = (filterWindow[low + high / 2] +
+                        (high % 2) * filterWindow[low + 1 + high / 2]) / (1 + (high % 2)) -
                         lastMedian; // current - last median value.
                     interpolationStepSize /= nStep;
                     for (int i = 1; i < nStep; i++)
@@ -427,15 +426,13 @@ namespace KernelDevelopment
                         answer[outIdx - nStep * frameSize + i * frameSize] =
                             (int)(meanVector[zSlize - nStep + i] * (
                             inputVector[inpIdx - nStep + i] -
-                            lastMedian - interpolationStepSize * i
+                            lastMedian + interpolationStepSize * i
                             ));
                         if (answer[outIdx - nStep * frameSize + i * frameSize] < 0)
                             answer[outIdx - nStep * frameSize + i * frameSize] = 0;
                     }
-                    lastMedian = (filterWindow[low + +high / 2] +
-                        (high % 2) * filterWindow[low + high % 2 + high / 2]) / (1 + (high % 2)); // median for this round, store for next.
-                    
-                    
+                    lastMedian = (filterWindow[low + high / 2] +
+                        (high % 2) * filterWindow[low + 1 + high / 2]) / (1 + (high % 2)); // median for this round, store for next.
 
                     high--; // decrease counter.
                     inpIdx += nStep; // load every nStep entry of inputVector

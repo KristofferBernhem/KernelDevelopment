@@ -11,10 +11,10 @@ namespace KernelDevelopment
     {
         static void Main(string[] args)
         {
-            //medianFilteringInterpolateSecond.Execute();   // IN USE!
-            //findMaxima.Execute();
-            //gaussFit.Execute();
-            driftCorr.Execute();
+            medianFilteringInterpolateSecond.Execute();   // IN USE!
+  //          findMaxima.Execute();
+        //    gaussFit.Execute();
+          //  driftCorr.Execute();
             //filterImage.Execute();
 
 
