@@ -38,13 +38,13 @@ namespace KernelDevelopment
             // create particles for drift correction:
 
             int[] drift = { 0, 0, 0 };
-            //int[] dimensions = { 2*1280, 2*1280, 1 };
-            int[] dimensions = { 64, 64, 1 };
-            int[] firstFrame = generateTest(drift, dimensions);
+         //   int[] dimensions = { 600, 600, 1 };
+            int[] dimensions = { 8, 8, 1 };
+           /* int[] firstFrame = generateTest(drift, dimensions);
             drift[0] = -1;
             drift[1] = 1;
             drift[2] = 0;
-            int[] secondFrame = generateTest(drift, dimensions);
+            int[] secondFrame = generateTest(drift, dimensions);*/
             int maxShift    = 8;
             int maxShiftZ   = 5;
             int reduce = 1;
@@ -79,7 +79,7 @@ namespace KernelDevelopment
             }
                    
 
-            double referenceSquare = 0;
+/*            double referenceSquare = 0;
             float mean = 0;
             for (int idx = 0; idx < firstFrame.Length; idx++)
             {
@@ -110,10 +110,7 @@ namespace KernelDevelopment
             for (int i = 0; i < targetSquare.Length; i++)
             {
                 targetSquare[i] = Math.Sqrt(targetSquare[i]);          
-            }
-
-
-
+            }*/
 
             int[] data = {      0, 0, 0, 0, 0, 0, 0, 0, 
                                 0, 0, 0, 0, 0, 0, 0, 0, 
@@ -129,24 +126,48 @@ namespace KernelDevelopment
                                 0, 0, 0, 0, 0, 0, 0, 0, 
                                 0, 0, 0, 0, 0, 0, 0, 0, 
                                 0, 0, 0, 0, 0, 0, 0, 0, 
-                                0, 0, 0, 0, 0, 0, 0, 0, 
                                 0, 0, 0, 0, 100, 0, 0, 0, 
+                                0, 0, 0, 0, 0, 0, 0, 0, 
                                 0, 0, 0, 0, 0, 0, 0, 0};
-            dimensions[0] = 8;
+            double referenceSquare =0;
+            double[] targetSquare = {0};
+            float[] means = { 110 / 64, 101 / 64 };
+            for (int i = 0; i < data.Length; i++ )
+            {
+                if (data[i]>0)
+                {
+                    referenceSquare += (data[i] - means[0]) * (data[i] - means[0]);
+                }
+                if (data2[i]>0)
+                {
+                    targetSquare[0] += (data2[i] - means[1]) * (data2[i] - means[1]);
+                }
+            }
+            referenceSquare = Math.Sqrt(referenceSquare);
+            targetSquare[0] = Math.Sqrt(targetSquare[0]);
+
+              dimensions[0] = 8;
             dimensions[1] = 8;
             referenceSquare = Math.Sqrt(referenceSquare);
             Stopwatch watch = new Stopwatch();
             watch.Start();
             // USER INPUT:
-            float[] means = { mean, mean };
+            
+            /*int[] device_firstFrame = gpu.CopyToDevice(firstFrame);   // Stationary dataset.
+            int[] device_secondFrame = gpu.CopyToDevice(secondFrame);  // Target dataset, move this to maximize correlation. */
             int[] device_firstFrame = gpu.CopyToDevice(data);   // Stationary dataset.
             int[] device_secondFrame = gpu.CopyToDevice(data2);  // Target dataset, move this to maximize correlation.
+         //   int frameBatch = dimensions[1];
+            
             float[] device_means = gpu.CopyToDevice(means);
             int[] device_dimensions = gpu.CopyToDevice(dimensions);   // Stationary dataset.
-            int gridSize = (int)Math.Ceiling(Math.Sqrt(dimensions[0]*dimensions[1]*dimensions[2]));     
+            
             double[] device_result = gpu.Allocate<double>(shift.Length / 3); // output.                       
+            //double[] device_result = gpu.Allocate<double>(dimensions[0] * dimensions[1] * dimensions[2]); // output.                       
             int[] device_shift = gpu.CopyToDevice(shift);   // Stationary dataset.            
-
+            
+            int gridSize = (int)Math.Ceiling(Math.Sqrt(dimensions[0] * dimensions[1] * dimensions[2]));
+            //int gridSize = (int)Math.Ceiling(Math.Sqrt(shift.Length / 3));     
             gpu.Launch(new dim3(gridSize, gridSize), 1).runAdd(device_firstFrame, device_secondFrame, device_shift, device_means, device_dimensions, device_result);
 
             gpu.Synchronize();
@@ -156,11 +177,11 @@ namespace KernelDevelopment
             {
                 if (result[m] > 0.1)
                     Console.WriteLine("result " + m + ": " + result[m] /
-                       (Math.Sqrt(100)*Math.Sqrt(100)) + " from shift: " + shift[3 * m] + " x " + shift[1 + 3 * m ] + " x " + shift[2 + 3 * m]);
+                       (Math.Sqrt(100)*Math.Sqrt(100)) + " from shift: " + shift[ 3*m] + " x " + shift[1+ 3* m ] + " x " + shift[2  +3*m]);
             }
             watch.Stop();
-              Console.WriteLine("Computation time: " + watch.ElapsedMilliseconds + " mean " + mean);
-         
+              Console.WriteLine("Computation time: " + watch.ElapsedMilliseconds + " mean " + means[0]);
+              Console.WriteLine(gridSize);
             // Clear gpu.
             gpu.FreeAll();
             gpu.HostFreeAll();
@@ -177,32 +198,67 @@ namespace KernelDevelopment
         public static void runAdd(GThread thread, int[] referenceDataSet, int[] targetDataSet, int[] shift, float[] means, int[] dimensions, double[] result)
         {
             int idx = thread.blockIdx.x + thread.gridDim.x * thread.blockIdx.y; // get pixel index.
-            
-            if (idx < dimensions[0] * dimensions[1] * dimensions[2]) // if within range.
+          //  idx *= dimensions[1];
+            if (idx < dimensions[0] *dimensions[1]*  dimensions[2]) // if within range.
             {
-                // verify shift ok.
-                if (referenceDataSet[idx] > 0) // no need to compute if the result is 0.
+           /*     int nextIdx = idx + dimensions[1];
+                while (idx < nextIdx)
                 {
-                    short zi = (short)(idx / (dimensions[0] * dimensions[1]));
-                    short xi = (short)(idx - zi * dimensions[0] * dimensions[1]);
-                    short yi = (short)(xi / dimensions[0]);
-                    xi -= (short)(yi * dimensions[0]);
-                    for (int shiftIdx = 0; shiftIdx < shift.Length / 3; shiftIdx++)
-                    {
-
-                        if (xi - shift[shiftIdx * 3 + 0] >= 0 && xi - shift[shiftIdx * 3 + 0] < dimensions[0] &&
-                            yi - shift[shiftIdx * 3 + 1] >= 0 && yi - shift[shiftIdx * 3 + 1] < dimensions[1] &&
-                            zi - shift[shiftIdx * 3 + 2] >= 0 && zi - shift[shiftIdx * 3 + 2] < dimensions[2])
+             */       // verify shift ok.
+             //       if (referenceDataSet[idx] > 0) // no need to compute if the result is 0.
+              //      {
+                        int zi = (int)(idx / (dimensions[0] * dimensions[1]));
+                        int xi = (int)(idx - zi * dimensions[0] * dimensions[1]);
+                        int yi = (int)(xi / dimensions[0]);
+                        xi -= (int)(yi * dimensions[0]);
+                        for (int shiftIdx = 0; shiftIdx < shift.Length / 3; shiftIdx++)
                         {
-                            int tarIdx = (xi - shift[shiftIdx * 3]) + (yi - shift[shiftIdx * 3 + 1]) * dimensions[0] + (zi - shift[shiftIdx * 3 + 2]) * dimensions[1] * dimensions[0];
-                            result[shiftIdx] += (referenceDataSet[idx] - means[0]) * (targetDataSet[tarIdx] - means[1]);
+                            if (xi - shift[shiftIdx * 3 + 0] >= 0 && xi - shift[shiftIdx * 3 + 0] < dimensions[0] &&
+                                yi - shift[shiftIdx * 3 + 1] >= 0 && yi - shift[shiftIdx * 3 + 1] < dimensions[1] &&
+                                zi - shift[shiftIdx * 3 + 2] >= 0 && zi - shift[shiftIdx * 3 + 2] < dimensions[2])
+                            {
+                                int tarIdx = (xi - shift[shiftIdx * 3]) + (yi - shift[shiftIdx * 3 + 1]) * dimensions[0] + (zi - shift[shiftIdx * 3 + 2]) * dimensions[1] * dimensions[0];
+                                result[shiftIdx] += (referenceDataSet[idx] - means[0]) * (targetDataSet[tarIdx] - means[1]);
+                            }
                         }
-                    }
-                }
-            }       
+                //    }
+               /*     idx++;
+                }*/
+            }    
         }
+        
+        //[Cudafy]
+        /*
+         * Call the kernel once per bin comparison, get a return containing correlation for all sets, search through to decide which one was optimal.
+         * organize datasets at [x1][y1][z1][x2]...
+         * numSteps = [x/y steps][z steps]. (set z step to 1 for 2D data). This HAS to match iterations in (int i = - maxShift[0]; i <= maxShift[0]; i += stepSize[0]).
+         
+        public static void runAddFrame(GThread thread, int[] referenceDataSet, int[] targetDataSet, int[] shift, float[] means, int[] dimensions, double[] result)
+        {
+            int idx = thread.blockIdx.x + thread.gridDim.x * thread.blockIdx.y; // get pixel index.
 
+            if (idx < shift.Length/3) // if within range.
+            {
+                int frameIdx = 0;
+                while (frameIdx < referenceDataSet.Length)
+                {
+                    // verify shift ok.
+                    if (referenceDataSet[frameIdx] > 0) // no need to compute if the result is 0.
+                    {
+                        short zi = (short)(frameIdx / (dimensions[0] * dimensions[1]));
+                        short xi = (short)(frameIdx - zi * dimensions[0] * dimensions[1]);
+                        short yi = (short)(xi / dimensions[0]);
+                        xi -= (short)(yi * dimensions[0]);
+                        int tarIdx = (xi - shift[idx * 3]) + (yi - shift[idx * 3 + 1]) * dimensions[0] + (zi - shift[idx * 3 + 2]) * dimensions[1] * dimensions[0];
+                        if (tarIdx < targetDataSet.Length)
+                            result[idx] += (referenceDataSet[frameIdx] - means[0]) * (targetDataSet[tarIdx] - means[1]);
 
+                        
+                    }
+                frameIdx++;
+                }             
+            }
+        }*/
 
 
 
@@ -221,7 +277,7 @@ namespace KernelDevelopment
                     }
                 }                
             }
-            int l = 50;
+            int l = 20;
             int m = 30;
             int n = 0;
 
