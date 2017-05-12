@@ -142,9 +142,12 @@ namespace KernelDevelopment
                      int count = 0;
                      while (i < (idx + 1) * (frameWidth * frameHeight))
                      {
-                         mean += data[i];
                          if (data[i] > 0)
+                         { 
+                             mean += data[i];
                              count++;
+                         }
+                             
                          i++;
                      }
                      if (count > 0)
@@ -158,12 +161,13 @@ namespace KernelDevelopment
                          }
                          std /= count;
                          std = Math.Sqrt(std);
-                         minLevel[idx] = (int)(mean + 2.0 * std);
+                         minLevel[idx] = (int)(mean*2.0 + 3.0 * std);
                      }
                      else
                          minLevel[idx] = 64000;
                      
                  }
+                 int minNeighbourLevel = (int)(0.3 * minLevel[idx]);
                  i = (idx * (frameWidth * frameHeight) + (windowWidth / 2) * frameWidth + windowWidth / 2); // start windowWidth / 2 pixels in and windowWidth / 2 down.
                  while (j < (idx + 1) * sizeCenter)
                  { 
@@ -199,7 +203,11 @@ namespace KernelDevelopment
                          if (j < minPosPixel)
                              include = false; // not ok area.
                          
-                         if (include) // center pixel is the strongest.
+                         if (include &&  // center pixel is the strongest.
+                             data[i + 1] > minNeighbourLevel &&
+                             data[i - 1] > minNeighbourLevel &&
+                             data[i + frameWidth] > minNeighbourLevel &&
+                             data[i - frameWidth] > minNeighbourLevel)
                          {
                              Center[idx * sizeCenter + added] = i;// add value.
                              added++;
