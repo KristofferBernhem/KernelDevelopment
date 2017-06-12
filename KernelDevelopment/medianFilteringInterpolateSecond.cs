@@ -57,7 +57,11 @@ namespace KernelDevelopment
 
             // Run kernel.
 
-            gpu.Launch(new dim3(framewidth, frameheight,1), 1).medianKernel(width, device_window, depth, device_data, device_meanVector, 1, device_result);            
+            //gpu.Launch(new dim3(framewidth, frameheight,1), 1).medianKernel(width, device_window, depth, device_data, device_meanVector, 1, device_result);
+
+            int blockSize = 256;
+            int gridSize = (framewidth * frameheight + blockSize - 1) / blockSize;
+            gpu.Launch(gridSize,blockSize).medianKernel(framewidth * frameheight, width, device_window, depth, device_data, device_meanVector, 1, device_result);            
 
             int[] result2 = new int[N];
             gpu.CopyFromDevice(device_result, result2);
@@ -165,12 +169,15 @@ namespace KernelDevelopment
          *  Output is: Input value - frameMean*median.
          *
          */
-        public static void medianKernel(GThread thread, int windowWidth, float[] filterWindow, int depth, float[] inputVector, float[] meanVector, int nStep, int[] answer)
+        public static void medianKernel(GThread thread, int n, int windowWidth, float[] filterWindow, int depth, float[] inputVector, float[] meanVector, int nStep, int[] answer)
         {
-            int y = thread.blockIdx.y;
+            /*int y = thread.blockIdx.y;
             int x = thread.blockIdx.x;
             int idx = x + (y * thread.gridDim.x);          // which pixel.              
-            if (idx < inputVector.Length / depth)           // if pixel is included.
+            if (idx < inputVector.Length / depth)           // if pixel is included. */
+            int index = thread.blockIdx.x * thread.blockDim.x + thread.threadIdx.x;
+            int stride = thread.blockDim.x * thread.gridDim.x;
+            for (int idx = index; idx < n; idx += stride) // grid stride loop.
             {
                 int low = idx * (2 * windowWidth + 1);
                 int high = low + windowWidth;
@@ -178,7 +185,7 @@ namespace KernelDevelopment
                 int zSlize = 0;
                 int inpIdx = idx*depth; // variable to keep track of latest added inputvector entry.
                 int filtIdx = low; // variable to keep track of next position to add element to.
-                int outIdx = idx;
+                int outIdx = idx;                
                 int frameSize = (inputVector.Length / depth);
                 float lastMedian = 0;
                 float interpolationStepSize = 0;
@@ -229,9 +236,6 @@ namespace KernelDevelopment
                 lastMedian = filterWindow[low + (high / 2)-1];
                 if (answer[outIdx] < 0)
                     answer[outIdx] = 0;
-
-
-                
                 outIdx += frameSize*nStep; // next save step.
                 inpIdx += nStep; // load every nStep entry of inputVector                
                 zSlize += nStep;
@@ -386,9 +390,9 @@ namespace KernelDevelopment
                     outIdx += frameSize * nStep; // next save step.
                     zSlize += nStep;
 
-                } // main loop.
-                
-                
+                } // main loop.                
+
+
                 high--;
                 while (inpIdx < (idx + 1) * depth)
                 {                 

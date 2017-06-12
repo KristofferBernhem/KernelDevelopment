@@ -166,9 +166,16 @@ namespace KernelDevelopment
             //double[] device_result = gpu.Allocate<double>(dimensions[0] * dimensions[1] * dimensions[2]); // output.                       
             int[] device_shift = gpu.CopyToDevice(shift);   // Stationary dataset.            
             
-            int gridSize = (int)Math.Ceiling(Math.Sqrt(dimensions[0] * dimensions[1] * dimensions[2]));
+         //   int gridSize = (int)Math.Ceiling(Math.Sqrt(dimensions[0] * dimensions[1] * dimensions[2]));
+        //    int blockSize = 256;
+          //  int numBlocks = (dimensions[0] * dimensions[1] * dimensions[2] + blockSize - 1) / blockSize;
+           // Console.WriteLine("numBlocks: " + numBlocks);
             //int gridSize = (int)Math.Ceiling(Math.Sqrt(shift.Length / 3));     
-            gpu.Launch(new dim3(gridSize, gridSize), 1).runAdd(device_firstFrame, device_secondFrame, device_shift, device_means, device_dimensions, device_result);
+            //gpu.Launch(new dim3(gridSize, gridSize), 1).runAdd(device_firstFrame, device_secondFrame, device_shift, device_means, device_dimensions, device_result);
+
+            int blockSize = 256;
+            int gridSize = (dimensions[0] * dimensions[1] * dimensions[2] + blockSize - 1) / blockSize;
+            gpu.Launch(new dim3(gridSize, gridSize), 1).runAdd(dimensions[0] * dimensions[1] * dimensions[2],device_firstFrame, device_secondFrame, device_shift, device_means, device_dimensions, device_result);
 
             gpu.Synchronize();
             double[] result = new double[shift.Length/3];   // initialize.
@@ -195,11 +202,15 @@ namespace KernelDevelopment
          * organize datasets at [x1][y1][z1][x2]...
          * numSteps = [x/y steps][z steps]. (set z step to 1 for 2D data). This HAS to match iterations in (int i = - maxShift[0]; i <= maxShift[0]; i += stepSize[0]).
          */
-        public static void runAdd(GThread thread, int[] referenceDataSet, int[] targetDataSet, int[] shift, float[] means, int[] dimensions, double[] result)
+        public static void runAdd(GThread thread, int n, int[] referenceDataSet, int[] targetDataSet, int[] shift, float[] means, int[] dimensions, double[] result)
         {
-            int idx = thread.blockIdx.x + thread.gridDim.x * thread.blockIdx.y; // get pixel index.
+        //    int idx = thread.blockIdx.x + thread.gridDim.x * thread.blockIdx.y; // get pixel index.
           //  idx *= dimensions[1];
-            if (idx < dimensions[0] *dimensions[1]*  dimensions[2]) // if within range.
+        //    if (idx < dimensions[0] *dimensions[1]*  dimensions[2]) // if within range.
+
+            int index = thread.blockIdx.x * thread.blockDim.x + thread.threadIdx.x;
+            int stride = thread.blockDim.x * thread.gridDim.x;
+            for (int idx = index; idx < n; idx += stride) // grid stride loop.
             {
            /*     int nextIdx = idx + dimensions[1];
                 while (idx < nextIdx)

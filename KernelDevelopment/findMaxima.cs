@@ -83,7 +83,12 @@ namespace KernelDevelopment
                 int[] deviceData = gpu.CopyToDevice(data);
                 int[] deviceCenter = gpu.Allocate<int>(N * sizeCenter); // 25 
                 int[] deviceMinLvl = gpu.CopyToDevice(minLvl);
-                gpu.Launch(new dim3(N_squared, N_squared), 1).run(deviceData, fW, fH, gWindow, deviceMinLvl, minPosPixel, sizeCenter, deviceCenter);
+                //gpu.Launch(new dim3(N_squared, N_squared), 1).run(deviceData, fW, fH, gWindow, deviceMinLvl, minPosPixel, sizeCenter, deviceCenter);
+
+                int blockSize = 256;
+                int gridSize = (N + blockSize - 1) / blockSize;
+                gpu.Launch(gridSize,blockSize).run(N,deviceData, fW, fH, gWindow, deviceMinLvl, minPosPixel, sizeCenter, deviceCenter);
+
                 int[] center = new int[N * sizeCenter];
                 //Console.Out.WriteLine("data: " + data.Length + " center: " + center.Length);
                 gpu.CopyFromDevice(deviceCenter, center);
@@ -123,11 +128,14 @@ namespace KernelDevelopment
      */ 
         [Cudafy]
 
-        public static void run(GThread thread, int[] data, int frameWidth, int frameHeight, int windowWidth, int[] minLevel, int minPosPixel, int sizeCenter, int[] Center)
+        public static void run(GThread thread, int n, int[] data, int frameWidth, int frameHeight, int windowWidth, int[] minLevel, int minPosPixel, int sizeCenter, int[] Center)
         {
-             int idx = thread.blockIdx.x + thread.gridDim.x * thread.blockIdx.y;
+          //   int idx = thread.blockIdx.x + thread.gridDim.x * thread.blockIdx.y;
            
-             if (idx < data.Length / (frameWidth * frameHeight))  // if current idx points to a location in input.
+           //  if (idx < data.Length / (frameWidth * frameHeight))  // if current idx points to a location in input.
+            int index = thread.blockIdx.x * thread.blockDim.x + thread.threadIdx.x;
+            int stride = thread.blockDim.x * thread.gridDim.x;
+            for (int idx = index; idx < n; idx += stride) // grid stride loop.
             {
                  int added = 0;
                  int j = 0;

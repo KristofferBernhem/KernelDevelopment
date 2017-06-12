@@ -83,7 +83,12 @@ namespace KernelDevelopment
                 double[] deviceKernel = gpu.CopyToDevice(kernel);
                 int N_squared = (int)(Math.Sqrt(data.Length / (fH * fW)));
 
-                gpu.Launch(new dim3(N_squared, N_squared), 1).filterKernel(deviceData, fW, fH, deviceKernel, kernelSize, deviceOutput);
+                //gpu.Launch(new dim3(N_squared, N_squared), 1).filterKernel(deviceData, fW, fH, deviceKernel, kernelSize, deviceOutput);
+
+                int N = data.Length / (fH * fW);
+                int blockSize = 256;
+                int gridSize = (N + blockSize - 1) / blockSize;
+                gpu.Launch(gridSize, blockSize).filterKernel(N,deviceData, fW, fH, deviceKernel, kernelSize, deviceOutput);
                 int[] output = new int[data.Length];                
                 gpu.CopyFromDevice(deviceOutput, output);           
                 for (int h = 0; h < output.Length; h++)
@@ -124,11 +129,14 @@ namespace KernelDevelopment
      */ 
         [Cudafy]
 
-        public static void filterKernel(GThread thread, int[] data, int frameWidth, int frameHeight, double[] kernel, int kernelSize, int[] output)
+        public static void filterKernel(GThread thread, int n, int[] data, int frameWidth, int frameHeight, double[] kernel, int kernelSize, int[] output)
         {
-             int idx = thread.blockIdx.x + thread.gridDim.x * thread.blockIdx.y;
+         //    int idx = thread.blockIdx.x + thread.gridDim.x * thread.blockIdx.y;
            
-             if (idx < data.Length / (frameWidth * frameHeight))  // if current idx points to a location in input.
+           //  if (idx < data.Length / (frameWidth * frameHeight))  // if current idx points to a location in input.
+            int indexStart = thread.blockIdx.x * thread.blockDim.x + thread.threadIdx.x;
+            int stride = thread.blockDim.x * thread.gridDim.x;
+            for (int idx = indexStart; idx < n; idx += stride) // grid stride loop.
             {
                  int frameStart = idx * frameWidth * frameHeight;
                 for (int xi = 0; xi < frameWidth; xi++)

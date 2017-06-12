@@ -91,10 +91,13 @@ namespace KernelDevelopment
 
                 int N_squared = (int)Math.Ceiling(Math.Sqrt(N)); // launch kernel. gridsize = N_squared x N_squared, blocksize = 1.
 
-                //gpu.Launch(new dim3(N_squared, N_squared), 1).gaussFitterAdaptive(device_gaussVector, device_parameterVector, windowWidth, device_bounds, device_steps);
 
-                gpu.Launch(new dim3(N_squared, N_squared), 1).gaussFitter(device_gaussVector, device_parameterVector, windowWidth, device_bounds, device_steps, convCriteria, maxIterations);
-                //gpu.Launch(new dim3(N_squared, N_squared), 1).gaussFitter2(device_gaussVector, device_parameterVector, windowWidth, device_bounds, device_steps, convCriteria, maxIterations); // faster with less overhead.
+                //gpu.Launch(new dim3(N_squared, N_squared), 1).gaussFitter(device_gaussVector, device_parameterVector, windowWidth, device_bounds, device_steps, convCriteria, maxIterations);
+                int blockSize = 256;
+                int gridSize = (N + blockSize - 1) / blockSize;
+                gpu.Launch(gridSize,blockSize).gaussFitter(N,device_gaussVector, device_parameterVector, windowWidth, device_bounds, device_steps, convCriteria, maxIterations);
+
+                
                 // Collect results.
                 double[] result = new double[7 * N];                // allocate memory for all parameters.
                 gpu.CopyFromDevice(device_parameterVector, result); // pull optimized parameters.
@@ -126,15 +129,18 @@ namespace KernelDevelopment
          * Follow by decreasing stepsize in all parameter spaces and repeat. Break if total iterations excedeed threshold or no further improvement can be found.
          * Start by optimizing x, y, sigma x, sigma y and theta. Amplitude and offset should not affect these but only final result. These are optimized after the other 5 parameters.
          */
-        public static void gaussFitter(GThread thread, int[] gaussVector, double[] P, ushort windowWidth, double[] bounds, double[] stepSize, double convCriteria, int maxIterations)
+        public static void gaussFitter(GThread thread, int n, int[] gaussVector, double[] P, ushort windowWidth, double[] bounds, double[] stepSize, double convCriteria, int maxIterations)
         {
-            int xIdx = thread.blockIdx.x;
-            int yIdx = thread.blockIdx.y;
+            //int xIdx = thread.blockIdx.x;
+            //int yIdx = thread.blockIdx.y;
 
-            int idx = xIdx + thread.gridDim.x * yIdx;
+            //int idx = xIdx + thread.gridDim.x * yIdx;
 
             //int idx = thread.blockIdx.x;        // get index for current thread.            
-            if (idx < gaussVector.Length / (windowWidth * windowWidth))  // if current idx points to a location in input.
+            //if (idx < gaussVector.Length / (windowWidth * windowWidth))  // if current idx points to a location in input.
+            int index = thread.blockIdx.x * thread.blockDim.x + thread.threadIdx.x;
+            int stride = thread.blockDim.x * thread.gridDim.x;
+            for (int idx = index; idx < n; idx += stride) // grid stride loop.
             {
                 ///////////////////////////////////////////////////////////////////
                 //////////////////////// Setup fitting:  //////////////////////////
