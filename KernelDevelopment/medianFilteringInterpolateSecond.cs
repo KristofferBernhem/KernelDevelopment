@@ -310,23 +310,7 @@ namespace KernelDevelopment
                     }
                     j = ind;
                     filterWindow[j] = inputVector[inpIdx + (windowWidth) * nStep]; // replace oldest entry with the next.
-                    //inputVector[inpIdx + (windowWidth) * nStep] = inputVector[inpIdx + (windowWidth) * nStep]; // replace oldest entry with the next.
-                  
-              /*      while (!swapped)
-                    {
-                        //if (inputVector[inpIdx - (windowWidth+1) * nStep] == filterWindow[j]) 
-                        if (Math.Abs(inputVector[inpIdx - (windowWidth+1) * nStep] - filterWindow[j]) < .1)
-                        {
-                            filterWindow[j] = inputVector[inpIdx+(windowWidth)*nStep]; // replace oldest entry with the next.
-                            swapped = true;
-                        }
-                        else
-                            j++;
-                        if (j == (idx+1)*windowWidth-1)
-                            swapped = true;
-                    } // entry replaced. Time to sort the new list.
-                    */
-                  
+                    //inputVector[inpIdx + (windowWidth) * nStep] = inputVector[inpIdx + (windowWidth) * nStep]; // replace oldest entry with the next.                 
                     
                     swapped = false;
                     if (j == low) // if we replaced the first entry in filterWindow
@@ -379,21 +363,6 @@ namespace KernelDevelopment
                         } // filterWindow[j] > filterWindow[j+1]
                         else if (filterWindow[j] < filterWindow[j - 1]) // if the new entry needs to be shifted up:
                         {
-                       /*     while (!swapped)
-                            {
-                                temp = filterWindow[j - 1];
-                                filterWindow[j - 1] = filterWindow[j];
-                                filterWindow[j] = temp;
-                                j--;
-                                if (j == low + 1)
-                                {
-                                    swapped = true;
-                                }
-                                else if (filterWindow[j] > filterWindow[j - 1])
-                                {
-                                    swapped = true;
-                                }
-                            }*/
                             while (j > low + 1 &&
                             filterWindow[j] < filterWindow[j - 1])
                             {
@@ -496,7 +465,7 @@ namespace KernelDevelopment
                 inpIdx -= nStep;
                 zSlize -= nStep;
                 outIdx -= frameSize * nStep; // next save step.
-                nStep = depth - zSlize; // remainding steps.
+                nStep = depth - zSlize-1; // remainding steps.
             
                 answer[outIdx + nStep*frameSize] = (int)(meanVector[depth-1] * (inputVector[(idx+1) * depth - 1] -
                       (filterWindow[low + high / 2] +
@@ -510,16 +479,19 @@ namespace KernelDevelopment
          
                 interpolationStepSize = 1;  
                 interpolationStepSize /= nStep;
-                for (int i = 1; i < nStep; i++)
+                int k = 1;
+                while (k < nStep && outIdx+k*frameSize < answer.Length)
                 {
-                    answer[outIdx +i * frameSize] =
-                        (int)(meanVector[zSlize + i] * (
-                        inputVector[inpIdx + i] -
-                        lastMedian - interpolationStepSize * i
+                        answer[outIdx +k * frameSize] =
+                        (int)(meanVector[zSlize + k] * (
+                        inputVector[inpIdx + k] -
+                        lastMedian - interpolationStepSize * k
                         ));
-                    if (answer[outIdx + i * frameSize] < 0)
-                        answer[outIdx + i * frameSize] = 0;
-                }               
+                    if (answer[outIdx + k * frameSize] < 0)
+                        answer[outIdx + k * frameSize] = 0;
+                    k++;
+                }
+                              
             } // end main check of idx.
         } // End medianKernelInterpolate.
 

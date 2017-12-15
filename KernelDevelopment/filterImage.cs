@@ -71,16 +71,21 @@ namespace KernelDevelopment
                                 0, 0, 0, 0, 0, 0, 0, 0, };
             
                 int kernelSize = 5;
-                double[] kernel = { 0.0015257568383789054, 0.003661718759765626, 0.02868598630371093, 0.0036617187597656254, 0.0015257568383789054, 
+             /*   double[] kernel = { 0.0015257568383789054, 0.003661718759765626, 0.02868598630371093, 0.0036617187597656254, 0.0015257568383789054, 
                                     0.003661718759765626, 0.008787890664062511, 0.06884453115234379, 0.00878789066406251, 0.003661718759765626, 
                                     0.02868598630371093, 0.06884453115234379, 0.5393295900878906, 0.06884453115234378, 0.02868598630371093,
                                     0.0036617187597656254, 0.00878789066406251, 0.06884453115234378, 0.008787890664062508, 0.0036617187597656254, 
                                     0.0015257568383789054, 0.003661718759765626, 0.02868598630371093, 0.0036617187597656254, 0.0015257568383789054};
-      
-                
+            */
+                float[] kernel = { 0.0015257568383789054F, 0.003661718759765626F, 0.02868598630371093F, 0.0036617187597656254F, 0.0015257568383789054F, 
+                                0.003661718759765626F, 0.008787890664062511F, 0.06884453115234379F, 0.00878789066406251F, 0.003661718759765626F, 
+                                0.02868598630371093F, 0.06884453115234379F, 0.5393295900878906F, 0.06884453115234378F, 0.02868598630371093F,
+                                0.0036617187597656254F, 0.00878789066406251F, 0.06884453115234378F, 0.008787890664062508F, 0.0036617187597656254F, 
+                                0.0015257568383789054F, 0.003661718759765626F, 0.02868598630371093F, 0.0036617187597656254F, 0.0015257568383789054F}; // 5x5 bicubic Bspline filter.
+		
                 int[] deviceData = gpu.CopyToDevice(data);
                 int[] deviceOutput = gpu.Allocate<int>(data.Length); // 25 
-                double[] deviceKernel = gpu.CopyToDevice(kernel);
+                float[] deviceKernel = gpu.CopyToDevice(kernel);
                 int N_squared = (int)(Math.Sqrt(data.Length / (fH * fW)));
 
                 //gpu.Launch(new dim3(N_squared, N_squared), 1).filterKernel(deviceData, fW, fH, deviceKernel, kernelSize, deviceOutput);
@@ -88,6 +93,7 @@ namespace KernelDevelopment
                 int N = data.Length / (fH * fW);
                 int blockSize = 256;
                 int gridSize = (N + blockSize - 1) / blockSize;
+                gridSize = gridSize * 2;
                 gpu.Launch(gridSize, blockSize).filterKernel(N,deviceData, fW, fH, deviceKernel, kernelSize, deviceOutput);
                 int[] output = new int[data.Length];                
                 gpu.CopyFromDevice(deviceOutput, output);           
@@ -108,7 +114,7 @@ namespace KernelDevelopment
                     //Profile:
                     watch.Stop();
                 Console.WriteLine( watch.ElapsedMilliseconds + " total time");
-
+                
                 // Clear gpu.
                 gpu.FreeAll();
                 gpu.HostFreeAll();
@@ -129,49 +135,76 @@ namespace KernelDevelopment
      */ 
         [Cudafy]
 
-        public static void filterKernel(GThread thread, int n, int[] data, int frameWidth, int frameHeight, double[] kernel, int kernelSize, int[] output)
+        public static void filterKernel(GThread thread, int n, int[] data, int frameWidth, int frameHeight, float[] kernel, int kernelSize, int[] output)
         {
-         //    int idx = thread.blockIdx.x + thread.gridDim.x * thread.blockIdx.y;
-           
+            // int idx = thread.blockIdx.x + thread.gridDim.x * thread.blockIdx.y;           
            //  if (idx < data.Length / (frameWidth * frameHeight))  // if current idx points to a location in input.
             int indexStart = thread.blockIdx.x * thread.blockDim.x + thread.threadIdx.x;
             int stride = thread.blockDim.x * thread.gridDim.x;
-            for (int idx = indexStart; idx < n; idx += stride) // grid stride loop.
+            int idx = indexStart;                        
+            while (idx < n)
             {
-                 int frameStart = idx * frameWidth * frameHeight;
-                for (int xi = 0; xi < frameWidth; xi++)
+                
+              int halfKernel = (int)(Math.Ceiling((double)(kernelSize / 2)));
+                int frameStart = idx * frameWidth * frameHeight;
+                for (int i = frameStart; i < (idx + 1) * frameWidth * frameHeight; i++)
+                {
+                    float filtered = 0;
+                    int k = i - (halfKernel) * (frameWidth + 1);                                                 
+                    int loopC = 0;
+                    int j = 0;
+                    while (k <= i + (halfKernel) * (frameWidth)) // loop over all relevant pixels. use this loop to extract data based on single indexing defined centers.
+                    {
+                        if (k < (idx + 1) * frameWidth * frameHeight && k >= (idx) * frameWidth * frameHeight)
+                            filtered += data[k] * kernel[j];
+                        k++;
+                        loopC++;
+                        j++;
+                        if (loopC == kernelSize)
+                        {
+                            k += (frameWidth - kernelSize);
+                            loopC = 0;
+                        }                             
+                    }
+                    output[i] = (int)(filtered);
+                }
+     /*           for (int xi = 0; xi < frameWidth; xi++)
                 {
                     for (int yi = 0; yi < frameHeight; yi++)
-                    {                       
+                    {
+                      //  float swap = 0;
                         int outputIndex = xi + yi * frameHeight + frameStart;
-                        for (int i = -kernelSize / 2; i <= kernelSize / 2; i++)
+                        if (outputIndex < (idx + 1) * frameWidth * frameHeight && outputIndex >= (idx) * frameWidth * frameHeight)
                         {
-                            if (xi + i < frameWidth && xi+i >= 0)
+                            for (int i = -halfKernel; i <= halfKernel; i++)
                             {
-                                for (int j = -kernelSize / 2; j <= kernelSize / 2; j++)
+                                if (xi + i < frameWidth && xi + i >= 0)
                                 {
-                                    if (yi + j < frameHeight && yi + j >= 0)
+                                    for (int j = -halfKernel; j <= halfKernel; j++)
                                     {
-                                        // convert ij to linear coordinates.
-                                        int index = (xi + i) + (yi + j) * frameHeight + frameStart;
-                                        int kernelIdx = (i + kernelSize / 2) + (j + kernelSize / 2) * kernelSize;
-                                        output[outputIndex] += (int)(data[index] * kernel[kernelIdx]);
+                                        if (yi + j < frameHeight && yi + j >= 0)
+                                        {
+                                            int index = (xi + i) + (yi + j) * frameHeight + frameStart;
+                                            if (index < (idx + 1) * frameWidth * frameHeight && index >= (idx) * frameWidth * frameHeight)                                            
+                                            {                                                                                                
+                                                int kernelIdx = (i + kernelSize / 2) + (j + kernelSize / 2)* (kernelSize);
+                                                if (kernelIdx < kernel.Length)
+                                                {
+                                                    float temp = (float)(data[index] * kernel[kernelIdx]);
+                                                    output[outputIndex] += temp;
+                                                }                                       
+                                                //swap += (float)(data[index] * kernel[kernelIdx]);
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
-
+                           }
+                              
                     }
-                } // main inner section                 
+                } // main inner section                 */
 
-                 /*
-                  * Loop over output index to verify that it is non-negative.
-                  */ 
-                 for (int i = idx*frameHeight*frameWidth; i < (idx+1)*frameHeight*frameWidth; i++)
-                 {
-                     if (output[i] < 0)
-                         output[i] = 0;
-                 }
+                idx += stride;
             } // idx check
         }
         
